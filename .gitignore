@@ -1,0 +1,43 @@
+# Binary files
+*.exe
+*.o
+*.test
+
+# Build directories
+bin/
+pkg/
+
+# Dependencies (vendor directory, if using Go Modules with vendoring)
+vendor/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Temporary files and backups
+*.tmp
+*.swp
+*.backup
+*.bak
+*.orig
+*~
+
+# Test coverage files
+*.out
+*.cov
+*.profraw
+*.pprof
+
+# Logs
+*.log
+
+# Docker related files (if you are using Docker)
+docker-compose.override.yml
+.dockerenv
