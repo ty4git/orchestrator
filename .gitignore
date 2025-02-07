@@ -1,5 +1,9 @@
 # Binary files
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 *.o
 *.test
 
@@ -30,10 +34,12 @@ Thumbs.db
 *~
 
 # Test coverage files
-*.out
 *.cov
 *.profraw
 *.pprof
+
+## Output of the go coverage tool, specifically when used with LiteIDE
+*.out
 
 # Logs
 *.log
@@ -41,3 +47,7 @@ Thumbs.db
 # Docker related files (if you are using Docker)
 docker-compose.override.yml
 .dockerenv
+
+# Go workspace file
+go.work
+go.work.sum
