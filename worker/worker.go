@@ -95,7 +95,7 @@ func (w *Worker) runTask() task.DockerResult {
 		switch taskQueued.State {
 		case task.Scheduled:
 			result = w.StartTask(taskQueued)
-		case task.Completed:
+		case task.Finished:
 			result = w.StopTask(taskQueued)
 		default:
 			result.Error = errors.New("we should not get here")

@@ -88,11 +88,13 @@ func (m *Manager) updateTasks(ctx context.Context) {
 		req := communication.NewGet(ctx, url)
 		resp, err := (&http.Client{}).Do(req)
 		if err != nil {
-			m.logger.Printf("Error connecting to %v: %v\n", worker, err)
+			m.logger.Printf("Error connecting to \"%v\": \"%v\"\n", worker, err)
+			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			m.logger.Printf("Error sending request: %v\n", err)
+			m.logger.Printf("Error sending request: \"%v\"\n", err)
+			continue
 		}
 
 		d := json.NewDecoder(resp.Body)

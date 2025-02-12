@@ -51,3 +51,5 @@ docker-compose.override.yml
 # Go workspace file
 go.work
 go.work.sum
+
+.venv

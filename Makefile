@@ -26,9 +26,15 @@ get-tasks:
 
 ID=bb1d59ef-9fc1-4e4b-a44d-db571eeed203
 Url="http://$(CUBE_MANAGER_HOST):$(CUBE_MANAGER_PORT)/tasks/$(ID)"
-delete-task:
+stop-task:
 	echo "Task id: $(ID)"
 	curl -v -X DELETE $(Url)
+
+run-all:
+	./start.bash
+
+clean:
+	rm -f worker.log manager.log
 
 up:
 	docker compose up

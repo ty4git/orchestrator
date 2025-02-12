@@ -86,7 +86,7 @@ func (a *Api) GetTasks(c *gin.Context) {
 func (api *Api) StopTask(c *gin.Context) {
 	rawId := c.Param("id")
 	if rawId == "" {
-		msg := "No 'id' passed in request."
+		msg := "No \"id\" passed in request."
 		api.logger.Println(msg)
 		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
@@ -95,18 +95,18 @@ func (api *Api) StopTask(c *gin.Context) {
 	id, _ := uuid.Parse(rawId)
 	deletingTask, ok := api.Worker.Db[id]
 	if !ok {
-		msg := fmt.Sprintf("No task with id '%v' found", id)
+		msg := fmt.Sprintf("No task with id \"%v\" found", id)
 		api.logger.Println(msg)
 		c.JSON(http.StatusNotFound, gin.H{"error": msg})
 		return
 	}
 
 	taskCopy := *deletingTask
-	taskCopy.State = task.Completed
+	taskCopy.State = task.Finished
 	api.Worker.AddTask(taskCopy)
 
-	api.logger.Printf("Added task '%v' to stop container '%v'\n", deletingTask.ID, deletingTask.ContainerID)
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	api.logger.Printf("Added task \"%v\" to stop container \"%v\"\n", deletingTask.ID, deletingTask.ContainerID)
+	c.Status(http.StatusOK)
 }
 
 func (api *Api) GetStatsHandler(c *gin.Context) {

@@ -18,6 +18,7 @@ import (
 type Docker struct {
 	Client *client.Client
 	Config DockerConfig
+	logger *log.Logger
 }
 
 func NewDocker(c *DockerConfig) *Docker {
@@ -25,6 +26,7 @@ func NewDocker(c *DockerConfig) *Docker {
 	return &Docker{
 		Client: dc,
 		Config: *c,
+		logger: log.New(os.Stdout, "[orch | task | docker] ", log.LstdFlags),
 	}
 }
 
@@ -44,7 +46,7 @@ func (d *Docker) Run() DockerResult {
 	ctx := context.Background()
 	reader, err := d.Client.ImagePull(ctx, d.Config.Image, image.PullOptions{})
 	if err != nil {
-		log.Printf("Error pulling image %s: %v\n", d.Config.Image, err)
+		d.logger.Printf("Error pulling image %s: %v\n", d.Config.Image, err)
 		return DockerResult{Error: err}
 	}
 	defer reader.Close()
@@ -72,7 +74,7 @@ func (d *Docker) Run() DockerResult {
 	}
 	_, bindings, err := nat.ParsePortSpecs(ports)
 	if err != nil {
-		log.Printf("Invalid configuration of port bindings in a task configuration: %v", err)
+		d.logger.Printf("Invalid configuration of port bindings in a task configuration: %v", err)
 		return DockerResult{Error: err}
 	}
 
@@ -85,18 +87,18 @@ func (d *Docker) Run() DockerResult {
 
 	resp, err := d.Client.ContainerCreate(ctx, &containerConfig, &hc, nil, nil, d.Config.Name)
 	if err != nil {
-		log.Printf("Error creating container using image '%s': '%v'\n", d.Config.Image, err)
+		d.logger.Printf("Error creating container using image '%s': '%v'\n", d.Config.Image, err)
 		return DockerResult{Error: err}
 	}
 
 	if err = d.Client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		log.Printf("Error starting container '%s': '%v'\n", resp.ID, err)
+		d.logger.Printf("Error starting container '%s': '%v'\n", resp.ID, err)
 		return DockerResult{Error: err}
 	}
 
 	out, err := d.Client.ContainerLogs(ctx, resp.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
-		log.Printf("Error getting logs for container '%s': '%v'\n", resp.ID, err)
+		d.logger.Printf("Error getting logs for container '%s': '%v'\n", resp.ID, err)
 		return DockerResult{Error: err}
 	}
 
@@ -106,11 +108,11 @@ func (d *Docker) Run() DockerResult {
 }
 
 func (d *Docker) Stop(id string) DockerResult {
-	log.Printf("Attempting to stop container (id: '%v')", id)
+	d.logger.Printf("Attempting to stop container (id: '%v')", id)
 	ctx := context.Background()
 	err := d.Client.ContainerStop(ctx, id, container.StopOptions{})
 	if err != nil {
-		log.Printf("Error stopping container '%s': '%v'\n", id, err)
+		d.logger.Printf("Error stopping container '%s': '%v'\n", id, err)
 		return DockerResult{Error: err}
 	}
 
@@ -120,7 +122,8 @@ func (d *Docker) Stop(id string) DockerResult {
 		Force:         false,
 	})
 	if err != nil {
-		log.Printf("Error removing container '%s': '%v'\n", id, err)
+		err = fmt.Errorf("Error removing container \"%s\": \"%v\"", id, err)
+		d.logger.Println(err)
 		return DockerResult{Error: err}
 	}
 
@@ -128,11 +131,11 @@ func (d *Docker) Stop(id string) DockerResult {
 }
 
 func (d *Docker) Inspect(id string) *DockerInspectResponse {
-	log.Println("Inspecting container...")
+	d.logger.Println("Inspecting container...")
 	ctx := context.Background()
 	resp, err := d.Client.ContainerInspect(ctx, id)
 	if err != nil {
-		log.Printf("Error inspecting container: %s\n", err)
+		d.logger.Printf("Error inspecting container: %s\n", err)
 		return &DockerInspectResponse{
 			Error: err,
 		}
