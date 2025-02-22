@@ -8,16 +8,18 @@ const (
 	Running
 	Completed
 	Failed
-	Finished
+	Stopped
+	Deleted
 )
 
 var stateTransitionMap = map[State][]State{
 	Pending:   {Scheduled},
 	Scheduled: {Running, Failed},
-	Running:   {Running, Completed, Failed},
-	Completed: {Running, Completed, Failed, Finished},
-	Failed:    {Finished},
-	Finished:  {},
+	Running:   {Running, Completed, Failed, Stopped},
+	Completed: {Running, Completed, Failed, Stopped},
+	Failed:    {Stopped},
+	Stopped:   {Deleted},
+	Deleted:   {},
 }
 
 func Contains(states []State, state State) bool {

@@ -69,7 +69,7 @@ func (api *Api) StartTask(c *gin.Context) {
 	}
 
 	api.Manager.AddTask(te)
-	api.logger.Printf("Added task %v\n", te.Task.ID)
+	api.logger.Printf("Added task \"%v\"\n", te.Task.ID)
 	c.JSON(http.StatusCreated, te.Task)
 }
 
@@ -91,13 +91,13 @@ func (api *Api) StopTask(c *gin.Context) {
 
 	te := task.TaskEvent{
 		ID:        uuid.New(),
-		State:     task.Completed,
+		State:     task.Stopped,
 		Timestamp: time.Now(),
 	}
 
 	// we need to make a copy so we are not modifying the task in the datastore
 	taskCopy := *taskToStop
-	taskCopy.State = task.Completed
+	taskCopy.State = task.Stopped
 	te.Task = taskCopy
 	api.Manager.AddTask(te)
 

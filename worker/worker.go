@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"orchestrator/task"
@@ -42,8 +41,8 @@ func (w *Worker) GetTasks(ctx context.Context) []*task.Task {
 	return tasks
 }
 
-func (w *Worker) AddTask(t task.Task) {
-	w.Queue.Enqueue(t)
+func (w *Worker) AddTask(t *task.Task) {
+	w.Queue.Enqueue(*t)
 }
 
 func (w *Worker) RunTasks(ctx context.Context) {
@@ -52,7 +51,7 @@ func (w *Worker) RunTasks(ctx context.Context) {
 			_, span := otel.Tracer("Run tasks...").Start(ctx, "Run tasks")
 			defer span.End()
 			if w.Queue.Len() != 0 {
-				result := w.runTask()
+				result := w.runTask(ctx)
 				if result.Error != nil {
 					w.logger.Printf("Error running task: %v\n", result.Error)
 				}
@@ -66,7 +65,7 @@ func (w *Worker) RunTasks(ctx context.Context) {
 	}
 }
 
-func (w *Worker) runTask() task.DockerResult {
+func (w *Worker) runTask(ctx context.Context) task.DockerResult {
 	t := w.Queue.Dequeue()
 	if t == nil {
 		w.logger.Println("No tasks in the queue")
@@ -94,11 +93,13 @@ func (w *Worker) runTask() task.DockerResult {
 	if task.ValidStateTransition(taskPersisted.State, taskQueued.State) {
 		switch taskQueued.State {
 		case task.Scheduled:
-			result = w.StartTask(taskQueued)
-		case task.Finished:
+			result = w.StartTask(ctx, taskQueued)
+		case task.Stopped:
 			result = w.StopTask(taskQueued)
+		case task.Deleted:
+			result = w.DeleteTask(taskQueued)
 		default:
-			result.Error = errors.New("we should not get here")
+			result.Error = fmt.Errorf("we should not get here, state of queued task: \"%v\"", taskQueued.State)
 		}
 	} else {
 		err := fmt.Errorf("invalid transition task ID \"%v\" from \"%v\" to \"%v\"",
@@ -109,11 +110,11 @@ func (w *Worker) runTask() task.DockerResult {
 	return result
 }
 
-func (w *Worker) StartTask(t task.Task) task.DockerResult {
+func (w *Worker) StartTask(ctx context.Context, t task.Task) task.DockerResult {
 	t.StartTime = time.Now().UTC()
 	config := task.NewDockerConfig(&t)
 	d := task.NewDocker(config)
-	result := d.Run()
+	result := d.Run(ctx)
 	if result.Error != nil {
 		w.logger.Printf("Error of running task \"%v\": \"%v\"\n", t.ID, result.Error)
 		t.State = task.Failed
@@ -134,14 +135,19 @@ func (w *Worker) StopTask(t task.Task) task.DockerResult {
 
 	result := d.Stop(t.ContainerID)
 	if result.Error != nil {
-		w.logger.Printf("Error stopping container %v: %v\n", t.ContainerID, result.Error)
+		w.logger.Printf("Error stopping container \"%v\": \"%v\"\n", t.ContainerID, result.Error)
 	}
 	t.FinishTime = time.Now().UTC()
-	t.State = task.Completed
+	t.State = task.Stopped
 	w.Db[t.ID] = &t
 	w.logger.Printf("Stopped and removed container \"%v\" for task \"%v\"\n", t.ContainerID, t.ID)
 
 	return result
+}
+
+func (w *Worker) DeleteTask(t task.Task) task.DockerResult {
+	delete(w.Db, t.ID)
+	return task.DockerResult{Action: "delete", Result: "success", Error: nil}
 }
 
 func (w *Worker) CollectStats() {
@@ -178,7 +184,7 @@ func (w *Worker) updateTasks() {
 		if t.State == task.Running {
 			resp := w.InspectTask(*t)
 			if resp.Error != nil {
-				fmt.Printf("ERROR: %v\n", resp.Error)
+				fmt.Printf("Error: %v\n", resp.Error)
 			}
 
 			if resp.Container == nil {

@@ -10,7 +10,7 @@ done
 
 make run-manager &>> manager.log &
 PID2=$!
-echo "Waiting processes с PID '$PID1' и '$PID2'..."
+echo "Waiting processes with PID '$PID1' и '$PID2'..."
 
 tail -f worker.log manager.log >> all.log
 

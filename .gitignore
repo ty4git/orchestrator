@@ -52,4 +52,9 @@ docker-compose.override.yml
 go.work
 go.work.sum
 
+# virtual environments of python
 .venv
+venv
+
+# debug internal files
+**/__debug_*

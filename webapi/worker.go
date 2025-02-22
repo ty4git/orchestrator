@@ -30,7 +30,7 @@ func NewApi(worker *worker.Worker, host string, port string) *Api {
 		Worker: worker,
 		Host:   host,
 		Port:   port,
-		logger: log.New(os.Stdout, "[orchestrator | webapi | worker] ", log.LstdFlags),
+		logger: log.New(os.Stdout, "[or | webapi | worker] ", log.LstdFlags),
 	}
 }
 
@@ -56,8 +56,9 @@ func (api *Api) createRoutes(engine *gin.Engine) {
 
 		taskRoot := tasksRoot.Group("/:id")
 		{
-			taskRoot.DELETE("", api.StopTask)
+			taskRoot.PUT("", api.StopTask)
 			taskRoot.GET("", api.InspectTask)
+			taskRoot.DELETE("", api.DeleteTask)
 		}
 	}
 
@@ -73,8 +74,11 @@ func (api *Api) StartTask(c *gin.Context) {
 		return
 	}
 
-	api.Worker.AddTask(taskEvent.Task)
-	api.logger.Printf("Added task %v\n", taskEvent.Task.ID)
+	newTask := &(taskEvent.Task)
+	newTask.State = task.Scheduled
+
+	api.Worker.AddTask(newTask)
+	api.logger.Printf("Added task \"%v\"\n", taskEvent.Task.ID)
 	c.JSON(http.StatusCreated, taskEvent.Task)
 }
 
@@ -102,10 +106,35 @@ func (api *Api) StopTask(c *gin.Context) {
 	}
 
 	taskCopy := *deletingTask
-	taskCopy.State = task.Finished
-	api.Worker.AddTask(taskCopy)
+	taskCopy.State = task.Stopped
+	api.Worker.AddTask(&taskCopy)
 
 	api.logger.Printf("Added task \"%v\" to stop container \"%v\"\n", deletingTask.ID, deletingTask.ContainerID)
+	c.Status(http.StatusOK)
+}
+
+func (api *Api) DeleteTask(c *gin.Context) {
+	rawId := c.Param("id")
+	if rawId == "" {
+		msg := "No \"id\" passed in request."
+		api.logger.Println(msg)
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+		return
+	}
+
+	id, _ := uuid.Parse(rawId)
+	deletingTask, ok := api.Worker.Db[id]
+	if !ok {
+		api.logger.Printf("No task with id \"%v\" found", id)
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	taskCopy := *deletingTask
+	taskCopy.State = task.Deleted
+	api.Worker.AddTask(&taskCopy)
+
+	api.logger.Printf("Added task for deleting itself \"%v\"", deletingTask.ID)
 	c.Status(http.StatusOK)
 }
 

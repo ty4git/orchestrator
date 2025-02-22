@@ -2,7 +2,7 @@
     "ID": "6be4cb6b-61d1-40cb-bc7b-9cacefefa60c",
     "State": 3,
     "Task": {
-        "State": 3,
+        "State": 5,
         "ID": "21b23589-5d2d-4731-b5c9-a97e9832d021", 
         "ContainerID": "1ff83f90b1da",
         "Name": "test-chapter-5", 

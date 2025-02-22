@@ -42,8 +42,7 @@ type DockerInspectResponse struct {
 	Container *types.ContainerJSON
 }
 
-func (d *Docker) Run() DockerResult {
-	ctx := context.Background()
+func (d *Docker) Run(ctx context.Context) DockerResult {
 	reader, err := d.Client.ImagePull(ctx, d.Config.Image, image.PullOptions{})
 	if err != nil {
 		d.logger.Printf("Error pulling image %s: %v\n", d.Config.Image, err)
@@ -69,8 +68,10 @@ func (d *Docker) Run() DockerResult {
 	}
 
 	ports := make([]string, 0, len(d.Config.PortBindings))
-	for containerPort, hostPort := range d.Config.PortBindings {
-		ports = append(ports, fmt.Sprintf("%s:%s", containerPort, hostPort))
+	// Before calling of the docker should be a proper config formatter, that formats to normalized and validated format.
+	// And here we should read it from normalized config, not from raw config
+	for hostPort, containerPort := range d.Config.PortBindings {
+		ports = append(ports, fmt.Sprintf("%s:%s", hostPort, containerPort))
 	}
 	_, bindings, err := nat.ParsePortSpecs(ports)
 	if err != nil {

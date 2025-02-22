@@ -1,4 +1,4 @@
-#! /usr/bin/python3
+#! ./.venv/bin/python
 
 import argparse
 import signal
@@ -26,7 +26,7 @@ def start_task():
     response.raise_for_status()
 
 def stop_task():
-    id = "bb1d59ef-9fc1-4e4b-a44d-db571eeed203"
+    id = "21b23589-5d2d-4731-b5c9-a97e9832d021"
     url = f"http://localhost:8080/tasks/{id}"
     response = requests.delete(url)
     response.raise_for_status()
@@ -35,17 +35,25 @@ def run_all():
     worker = Process("worker.log", "worker", "localhost", "8081")
     manager = Process("manager.log", "manager", "localhost", "8080")
 
+    def terminate(signum: signal.Signals, worker: Process, manager: Process):
+        logging.info(f"Signal: \"{str(signum)}\". Terminating application...")
+        worker.terminate()
+        manager.terminate()
+
     try:
         worker.run()
         manager.run()
         signal.signal(signal.SIGINT,
-                    lambda signum, frame: terminate(signum, worker, manager))
-        while True:
+                    lambda _, __: terminate(signal.SIGINT, worker, manager))
+        
+        while manager.is_running():
             time.sleep(1)
-    except Exception as e:
+
+        time.sleep(1)
+
+    except KeyboardInterrupt as e:
         logging.error(f"Error: \"{e}\"")
-    finally:
-        terminate("No signal", worker, manager)
+        terminate(signal.SIGINT, worker, manager)
 
 actions = {
     "start-task": start_task,
@@ -65,33 +73,34 @@ class Process:
     def run(self):
         self._output_file = open(self.output_file_name, 'a')
         
-        try:
-            process = subprocess.Popen(["go", "run", ".", "-name", self.name],
-                                        stdout=self._output_file, stderr=self._output_file,
+        try:            
+            process = subprocess.Popen(["dlv", "debug" "--headless", "--listen=:2345", "--log", "--", f"-name={self.name}"],
+                                        stdout=self._output_file,
+                                        stderr=self._output_file,
                                         cwd="../..")
             self._process = process
 
-            while process.poll() is None:
-                if self._is_ready(self.host, self.port):
-                    break
-                time.sleep(1)
+            while not self._is_ready(self.host, self.port):
+                time.sleep(5)
 
             if process.returncode is None:
                 logging.info(f"\"{self.name}\" is running...")
             else:
                 logging.error(f"Error code: \"{process.returncode}\". Check error logs")
                 raise ValueError()
-        except Exception as e:
+        except BaseException as e:
             logging.error(f"Error: \"{e}\"")
             self.terminate()
             raise
 
     def wait(self):
-        if self._process:
-            self._process.wait()
+        if not self._process:
+            raise ValueError()
+        self._process.wait()
     
     def terminate(self):
-        if self._process is not None:
+        if self._process:
+            logging.info(f"Finishing process of \"{self.name}\"")
             self._process.terminate()
             return_code = self._process.wait()
             self._process = None
@@ -103,12 +112,17 @@ class Process:
 
         if self._output_file is not None:
             self._output_file.close()
+
+    def is_running(self):
+        return self._process and self._process.returncode is None
     
+        
     def _is_ready(self, host: str, port: str) -> bool:
-        logging.info(f"Checking app \"{host}:{port}\"...")
+        url = f"http://{host}:{port}"
+        logging.info(f"Checking \"{self.name}\" \"{url}\"...")
         status = False
         try:
-            response = requests.get(f"http://{host}:{port}", timeout=5)
+            response = requests.get(url, timeout=5)
             response.raise_for_status()
             status = True
         except requests.exceptions.HTTPError as http_err:
@@ -124,19 +138,13 @@ class Process:
             print(f"Unknown error: {e}")
             status = False
         
-        msg = "App is ready" if status else "App is not ready"
+        msg = f"\"{self.name}\" is ready" if status else f"\"{self.name}\" is not ready"
         logging.info(msg)
         return status
 
-def terminate(sig, worker, manager):
-    logging.info(f"Signal: \"{sig}\". Terminating application...")
-    worker.terminate()
-    manager.terminate()
-    exit(0)
-
 def main():
     logging.basicConfig(level=logging.INFO, 
-                    format="%(asctime)s - %(levelname)s - %(message)s", 
+                    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
                     handlers=[logging.FileHandler("logs.log"), 
                                 logging.StreamHandler()])
     
