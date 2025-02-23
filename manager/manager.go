@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"orchestrator/communication"
+	"orchestrator/node"
+	"orchestrator/scheduler"
 	"orchestrator/task"
 	"orchestrator/webapi"
 	"os"
@@ -28,16 +30,56 @@ type Manager struct {
 	WorkerTaskMap map[string][]uuid.UUID
 	TaskWorkerMap map[uuid.UUID]string
 	LastWorker    int
+	WorkerNodes   []*node.Node
+	Scheduler     scheduler.Scheduler
 	logger        *log.Logger
 }
 
-func New(workers []string) *Manager {
+// TODO: remove after test new method New
+// func New(workers []string) *Manager {
+// 	taskDb := make(map[uuid.UUID]*task.Task)
+// 	eventDb := make(map[uuid.UUID]*task.TaskEvent)
+// 	workerTaskMap := make(map[string][]uuid.UUID)
+// 	taskWorkerMap := make(map[uuid.UUID]string)
+// 	for i := range workers {
+// 		workerTaskMap[workers[i]] = []uuid.UUID{}
+// 	}
+
+// 	return &Manager{
+// 		Pending:       *queue.New(),
+// 		Workers:       workers,
+// 		TaskDb:        taskDb,
+// 		EventDb:       eventDb,
+// 		WorkerTaskMap: workerTaskMap,
+// 		TaskWorkerMap: taskWorkerMap,
+// 		logger:        log.New(os.Stdout, "[orchestrator | manager] ", log.LstdFlags),
+// 	}
+// }
+
+func New(workers []string, schedulerType string) *Manager {
 	taskDb := make(map[uuid.UUID]*task.Task)
 	eventDb := make(map[uuid.UUID]*task.TaskEvent)
+
 	workerTaskMap := make(map[string][]uuid.UUID)
 	taskWorkerMap := make(map[uuid.UUID]string)
-	for i := range workers {
-		workerTaskMap[workers[i]] = []uuid.UUID{}
+
+	var nodes []*node.Node
+	for worker := range workers {
+		workerTaskMap[workers[worker]] = []uuid.UUID{}
+
+		nAPI := fmt.Sprintf("http://%v", workers[worker])
+		n := node.NewNode(workers[worker], nAPI, "worker")
+		nodes = append(nodes, n)
+	}
+
+	var s scheduler.Scheduler
+	switch schedulerType {
+	case "greedy":
+		s = &scheduler.Greedy{Name: "greedy"}
+	case "roundrobin":
+		s = &scheduler.RoundRobin{Name: "roundrobin"}
+	default:
+		s = &scheduler.Epvm{Name: "epvm"}
 	}
 
 	return &Manager{
@@ -47,7 +89,9 @@ func New(workers []string) *Manager {
 		EventDb:       eventDb,
 		WorkerTaskMap: workerTaskMap,
 		TaskWorkerMap: taskWorkerMap,
-		logger:        log.New(os.Stdout, "[orchestrator | manager] ", log.LstdFlags),
+		WorkerNodes:   nodes,
+		Scheduler:     s,
+		logger:        log.New(os.Stdout, "[orch | manager] ", log.LstdFlags),
 	}
 }
 

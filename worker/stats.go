@@ -4,21 +4,23 @@ import (
 	"log"
 
 	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/load"
+	"github.com/shirou/gopsutil/mem"
 )
 
 type Stats struct {
-	//MemStats *linux.MemInfo
-	// DiskStats *linux.Disk
+	MemStats  *mem.VirtualMemoryStat
+	DiskStats *disk.UsageStat
 	CpuInfo   *cpu.InfoStat
 	CpuStats  *cpu.TimesStat
 	LoadStats *load.AvgStat
 	TaskCount int
 }
 
-// func (s *Stats) MemUsedKb() uint64 {
-// 	return s.MemStats.MemTotal - s.MemStats.MemAvailable
-// }
+func (s *Stats) MemUsed() uint64 {
+	return s.MemStats.Used
+}
 
 // func (s *Stats) MemUsedPercent() uint64 {
 // 	return s.MemStats.MemAvailable / s.MemStats.MemTotal
@@ -28,13 +30,13 @@ type Stats struct {
 // 	return s.MemStats.MemAvailable
 // }
 
-// func (s *Stats) MemTotalKb() uint64 {
-// 	return s.MemStats.MemTotal
-// }
+func (s *Stats) MemTotal() uint64 {
+	return s.MemStats.Total
+}
 
-// func (s *Stats) DiskTotal() uint64 {
-// 	return s.DiskStats.All
-// }
+func (s *Stats) DiskTotal() uint64 {
+	return s.DiskStats.Total
+}
 
 // func (s *Stats) DiskFree() uint64 {
 // 	return s.DiskStats.Free
@@ -55,35 +57,34 @@ func (s *Stats) CpuUsage() float64 {
 
 func GetStats() *Stats {
 	return &Stats{
-		// MemStats: GetMemoryInfo(),
-		//DiskStats: GetDiskInfo(),
+		MemStats:  GetMemoryStats(),
+		DiskStats: GetDiskInfo(),
 		CpuInfo:   GetCpuInfo(),
 		CpuStats:  GetCpuStats(),
 		LoadStats: GetLoadAvg(),
 	}
 }
 
-// // GetMemoryInfo See https://godoc.org/github.com/c9s/goprocinfo/linux#MemInfo
-// func GetMemoryInfo() *linux.MemInfo {
-// 	memstats, err := linux.ReadMemInfo("/proc/meminfo")
-// 	if err != nil {
-// 		log.Printf("Error reading from /proc/meminfo")
-// 		return &linux.MemInfo{}
-// 	}
+func GetMemoryStats() *mem.VirtualMemoryStat {
+	memstats, err := mem.VirtualMemory()
+	if err != nil {
+		log.Printf("Error reading memory info: %v", err)
+		return &mem.VirtualMemoryStat{}
+	}
 
-// 	return memstats
-// }
+	return memstats
+}
 
-// GetDiskInfo See https://godoc.org/github.com/c9s/goprocinfo/linux#Disk
-// func GetDiskInfo() *linux.Disk {
-// 	diskstats, err := linux.ReadDisk("/")
-// 	if err != nil {
-// 		log.Printf("Error reading from /")
-// 		return &linux.Disk{}
-// 	}
+func GetDiskInfo() *disk.UsageStat {
+	path := "/"
+	diskUsage, err := disk.Usage(path)
+	if err != nil {
+		log.Printf("Error reading disk info for \"%s\": \"%v\"", path, err)
+		return &disk.UsageStat{}
+	}
 
-// 	return diskstats
-// }
+	return diskUsage
+}
 
 func GetCpuInfo() *cpu.InfoStat {
 	cpuStats, err := cpu.Info()

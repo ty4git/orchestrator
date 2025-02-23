@@ -55,7 +55,8 @@ func runManager() {
 	defer managerTracer.Shutdown(ctx)
 
 	workers := []string{fmt.Sprintf("%s:%s", whost, wport)}
-	m := manager.New(workers)
+	schedulerType := "roundrobin"
+	m := manager.New(workers, schedulerType)
 	mapi := managerApi.NewApi(mhost, mport, m)
 
 	go m.ProcessTasks()
