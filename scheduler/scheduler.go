@@ -142,8 +142,14 @@ func (e *Epvm) Score(t task.Task, nodes []*node.Node) map[string]float64 {
 		memoryPercentAllocated := memoryAllocated / float64(node.Memory)
 
 		newMemPercent := (calculateLoad(memoryAllocated+float64(t.Memory/1000), float64(node.Memory)))
-		memCost := math.Pow(LIEB, newMemPercent) + math.Pow(LIEB, (float64(node.TaskCount+1))/maxJobs) - math.Pow(LIEB, memoryPercentAllocated) - math.Pow(LIEB, float64(node.TaskCount)/float64(maxJobs))
-		cpuCost := math.Pow(LIEB, cpuLoad) + math.Pow(LIEB, (float64(node.TaskCount+1))/maxJobs) - math.Pow(LIEB, cpuLoad) - math.Pow(LIEB, float64(node.TaskCount)/float64(maxJobs))
+		memCost := math.Pow(LIEB, newMemPercent) +
+			math.Pow(LIEB, (float64(node.TaskCount+1))/maxJobs) -
+			math.Pow(LIEB, memoryPercentAllocated) -
+			math.Pow(LIEB, float64(node.TaskCount)/float64(maxJobs))
+		cpuCost := math.Pow(LIEB, cpuLoad) +
+			math.Pow(LIEB, (float64(node.TaskCount+1))/maxJobs) -
+			math.Pow(LIEB, cpuLoad) -
+			math.Pow(LIEB, float64(node.TaskCount)/float64(maxJobs))
 
 		nodeScores[node.Name] = memCost + cpuCost
 	}
@@ -192,13 +198,11 @@ func calculateLoad(usage float64, capacity float64) float64 {
 // See discussion from this StackOverflow thread:
 // https://stackoverflow.com/questions/23367857/accurate-calculation-of-cpu-usage-given-in-percentage-in-linux
 func calculateCpuUsage(node *node.Node) (*float64, error) {
-	//stat1 := getNodeStats(node)
 	stat1, err := node.GetStats()
 	if err != nil {
 		return nil, err
 	}
 	time.Sleep(3 * time.Second)
-	//stat2 := getNodeStats(node)
 	stat2, err := node.GetStats()
 	if err != nil {
 		return nil, err
@@ -224,21 +228,3 @@ func calculateCpuUsage(node *node.Node) (*float64, error) {
 	}
 	return &cpuPercentUsage, nil
 }
-
-//func getNodeStats(node *node.Node) *stats.Stats {
-//	url := fmt.Sprintf("%s/stats", node.Api)
-//	resp, err := http.Get(url)
-//	if err != nil {
-//		log.Printf("Error connecting to %v: %v", node.Api, err)
-//	}
-//
-//	if resp.StatusCode != 200 {
-//		log.Printf("Error retrieving stats from %v: %v", node.Api, err)
-//	}
-//
-//	defer resp.Body.Close()
-//	body, _ := ioutil.ReadAll(resp.Body)
-//	var stats stats.Stats
-//	json.Unmarshal(body, &stats)
-//	return &stats
-//}

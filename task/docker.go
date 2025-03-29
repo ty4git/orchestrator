@@ -123,7 +123,7 @@ func (d *Docker) Stop(id string) DockerResult {
 		Force:         false,
 	})
 	if err != nil {
-		err = fmt.Errorf("Error removing container \"%s\": \"%v\"", id, err)
+		err = fmt.Errorf(`error removing container "%s": "%v"`, id, err)
 		d.logger.Println(err)
 		return DockerResult{Error: err}
 	}

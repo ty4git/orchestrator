@@ -11,9 +11,11 @@
     - Add developing in docker-compose
     - Add some integration tests using python
     - Think about unit tests on go
+    - Run all in docker compose
 
   ## Done
 
     - Fix port bindings
     - Proper stopping of task
     - Deleting of task
+    - Investigate how to use a debugger inside of a container

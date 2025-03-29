@@ -22,7 +22,7 @@ add-task-healthfail:
 		-d @$(REQUESTS_DIR)/add_task_healthfail.json
 
 get-tasks:
-	curl -v http://$(CUBE_MANAGER_HOST):$(CUBE_MANAGER_PORT)/tasks | jq
+	curl -v http://localhost:$(CUBE_MANAGER_PORT)/tasks | jq
 
 ID=bb1d59ef-9fc1-4e4b-a44d-db571eeed203
 Url="http://$(CUBE_MANAGER_HOST):$(CUBE_MANAGER_PORT)/tasks/$(ID)"
@@ -31,10 +31,4 @@ stop-task:
 	curl -v -X DELETE $(Url)
 
 run-all:
-	./start.bash
-
-clean:
-	rm -f worker.log manager.log
-
-up:
-	docker compose up
+	docker compose up -d

@@ -1,5 +1,7 @@
 package task
 
+import "slices"
+
 type State int
 
 const (
@@ -23,12 +25,7 @@ var stateTransitionMap = map[State][]State{
 }
 
 func Contains(states []State, state State) bool {
-	for _, s := range states {
-		if s == state {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(states, state)
 }
 
 func ValidStateTransition(src State, dst State) bool {

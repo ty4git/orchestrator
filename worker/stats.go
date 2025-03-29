@@ -79,7 +79,7 @@ func GetDiskInfo() *disk.UsageStat {
 	path := "/"
 	diskUsage, err := disk.Usage(path)
 	if err != nil {
-		log.Printf("Error reading disk info for \"%s\": \"%v\"", path, err)
+		log.Printf(`Error reading disk info for "%s": "%v"`, path, err)
 		return &disk.UsageStat{}
 	}
 

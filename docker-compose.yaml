@@ -1,9 +1,32 @@
 services:
-  jaeger:
-    image: jaegertracing/jaeger:2.2.0
+  # jaeger:
+  #   image: jaegertracing/jaeger:2.2.0
+  #   ports:
+  #     - 16686:16686 # Интерфейс Jaeger
+  #     - 4317:4317   # OTLP/gRPC
+  #     - 4318:4318   # OTLP/HTTP
+  #     - 5778:5778
+  #     - 9411:9411
+  manager:
+    image: golang:1.22-alpine
+    volumes:
+      - .:/app
+      - gocache:/go
+    working_dir: /app
+    command: ./docker/entrypoint.sh
     ports:
-      - 16686:16686 # Интерфейс Jaeger
-      - 4317:4317   # OTLP/gRPC
-      - 4318:4318   # OTLP/HTTP
-      - 5778:5778
-      - 9411:9411
+      - "8080:8080"
+      - "2345:2345"
+      - "40000:40000"
+  worker:
+    image: golang:1.22-alpine
+    volumes:
+      - .:/app
+      - gocache:/go
+    working_dir: /app
+    command: go run . -name=worker
+    ports:
+      - "8081:8081"
+
+volumes:
+  gocache:

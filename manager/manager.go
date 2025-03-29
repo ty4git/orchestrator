@@ -78,8 +78,10 @@ func New(workers []string, schedulerType string) *Manager {
 		s = &scheduler.Greedy{Name: "greedy"}
 	case "roundrobin":
 		s = &scheduler.RoundRobin{Name: "roundrobin"}
-	default:
+	case "epvm":
 		s = &scheduler.Epvm{Name: "epvm"}
+	default:
+		s = &scheduler.RoundRobin{Name: "roundrobin"}
 	}
 
 	return &Manager{
@@ -95,17 +97,16 @@ func New(workers []string, schedulerType string) *Manager {
 	}
 }
 
-func (m *Manager) SelectWorker() string {
-	var newWorker int
-	if m.LastWorker+1 < len(m.Workers) {
-		newWorker = m.LastWorker + 1
-		m.LastWorker++
-	} else {
-		newWorker = 0
-		m.LastWorker = 0
+func (m *Manager) SelectWorker(t task.Task) (*node.Node, error) {
+	candidates := m.Scheduler.SelectCandidateNodes(t, m.WorkerNodes)
+	if candidates == nil {
+		msg := fmt.Sprintf(`No available candidates match resource request for task "%v"`, t.ID)
+		err := errors.New(msg)
+		return nil, err
 	}
-
-	return m.Workers[newWorker]
+	scores := m.Scheduler.Score(t, candidates)
+	selectedNode := m.Scheduler.Pick(scores, candidates)
+	return selectedNode, nil
 }
 
 func (m *Manager) UpdateTasks() {
@@ -299,16 +300,35 @@ func (m *Manager) SendWork(ctx context.Context) {
 	defer span.End()
 
 	if m.Pending.Len() > 0 {
-		w := m.SelectWorker()
-
 		e := m.Pending.Dequeue()
 		te := e.(task.TaskEvent)
-		t := te.Task
-		m.logger.Printf("Pulled \"%v\" off pending queue\n", t)
-
 		m.EventDb[te.ID] = &te
-		m.WorkerTaskMap[w] = append(m.WorkerTaskMap[w], te.Task.ID)
-		m.TaskWorkerMap[t.ID] = w
+
+		t := te.Task
+		m.logger.Printf(`Pulled "%v" off pending queue\n`, t)
+
+		taskWorker, ok := m.TaskWorkerMap[te.Task.ID]
+		if ok {
+			persistedTask := m.TaskDb[te.Task.ID]
+			if te.State == task.Completed && task.ValidStateTransition(persistedTask.State, te.State) {
+				m.stopTask(ctx, taskWorker, te.Task.ID.String())
+				return
+			}
+			log.Printf(`invalid request: existing task "%s" is in state "%v" and`+
+				`cannot transition to the completed state\n`,
+				persistedTask.ID.String(), persistedTask.State)
+			return
+		}
+
+		m.SelectWorker(t)
+
+		w, err := m.SelectWorker(t)
+		if err != nil {
+			m.logger.Printf(`error selecting worker for task "%s": "%v"\n`, t.ID, err)
+		}
+
+		m.WorkerTaskMap[w.Name] = append(m.WorkerTaskMap[w.Name], te.Task.ID)
+		m.TaskWorkerMap[t.ID] = w.Name
 
 		t.State = task.Scheduled
 		m.TaskDb[t.ID] = &t
@@ -318,7 +338,7 @@ func (m *Manager) SendWork(ctx context.Context) {
 			m.logger.Printf("Unable to marshal task object: %v.\n", t)
 		}
 
-		url := fmt.Sprintf("http://%s/tasks", w)
+		url := fmt.Sprintf("http://%s/tasks", w.Name)
 		req := communication.NewPost(ctx, url, communication.NewJSON(data))
 		resp, err := (&http.Client{}).Do(req)
 		if err != nil {
@@ -378,4 +398,20 @@ func (m *Manager) ProcessTasks() {
 
 		time.Sleep(10 * time.Second)
 	}
+}
+
+func (m *Manager) stopTask(ctx context.Context, worker string, taskID string) {
+	url := fmt.Sprintf("http://%s/tasks/%s", worker, taskID)
+	req := communication.NewDelete(ctx, url)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		m.logger.Printf(`error connecting to worker at "%s": "%v"\n`, url, err)
+		return
+	}
+	if resp.StatusCode != 204 {
+		m.logger.Printf(`Error sending request: "%v"\n`, err)
+		return
+	}
+	m.logger.Printf("task %s has been scheduled to be stopped", taskID)
 }

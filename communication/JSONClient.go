@@ -80,7 +80,7 @@ func (r RequestType) String() string {
 	case Patch:
 		return "PATCH"
 	default:
-		log.Fatalf("Invalid type \"%v\"", r)
+		log.Fatalf(`Invalid type "%d"\n`, r)
 	}
 	return ""
 }
@@ -111,6 +111,15 @@ func NewGet(ctx context.Context, url string) *http.Request {
 	req, err := http.NewRequestWithContext(ctx, Get.String(), url, nil)
 	if err != nil {
 		log.Fatalf("Error of creating request: %v", err)
+	}
+	traced := addTraceInfo(ctx, req)
+	return traced
+}
+
+func NewDelete(ctx context.Context, url string) *http.Request {
+	req, err := http.NewRequestWithContext(ctx, Delete.String(), url, nil)
+	if err != nil {
+		log.Fatalf(`Error of creating request: "%v"\n`, err)
 	}
 	traced := addTraceInfo(ctx, req)
 	return traced

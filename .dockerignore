@@ -1,0 +1,7 @@
+*.log
+*.tmp
+.mypy_cache
+.venv
+venv
+.vscode
+.git

@@ -19,18 +19,20 @@ type ErrResponse struct {
 }
 
 type Api struct {
-	Worker *worker.Worker
-	Host   string
-	Port   string
-	logger *log.Logger
+	Worker  *worker.Worker
+	Host    string
+	Port    string
+	Address string
+	logger  *log.Logger
 }
 
 func NewApi(worker *worker.Worker, host string, port string) *Api {
 	return &Api{
-		Worker: worker,
-		Host:   host,
-		Port:   port,
-		logger: log.New(os.Stdout, "[or | webapi | worker] ", log.LstdFlags),
+		Worker:  worker,
+		Host:    host,
+		Port:    port,
+		Address: fmt.Sprintf("%s:%s", host, port),
+		logger:  log.New(os.Stdout, "[or | webapi | worker] ", log.LstdFlags),
 	}
 }
 
@@ -38,7 +40,10 @@ func (api *Api) Start() {
 	engine := gin.Default()
 	engine.Use(otelgin.Middleware("worker API"))
 	api.createRoutes(engine)
-	engine.Run(fmt.Sprintf("%s:%s", api.Host, api.Port))
+	err := engine.Run(api.Address)
+	if err != nil {
+		api.logger.Fatalf(`Error during starting API: "%v"`, err)
+	}
 }
 
 func (api *Api) createRoutes(engine *gin.Engine) {
