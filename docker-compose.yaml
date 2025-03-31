@@ -1,12 +1,12 @@
 services:
-  # jaeger:
-  #   image: jaegertracing/jaeger:2.2.0
-  #   ports:
-  #     - 16686:16686 # Интерфейс Jaeger
-  #     - 4317:4317   # OTLP/gRPC
-  #     - 4318:4318   # OTLP/HTTP
-  #     - 5778:5778
-  #     - 9411:9411
+  jaeger:
+    image: jaegertracing/jaeger:2.2.0
+    ports:
+      - 16686:16686 # Интерфейс Jaeger
+      - 4317:4317   # OTLP/gRPC
+      - 4318:4318   # OTLP/HTTP
+      - 5778:5778
+      - 9411:9411
   manager:
     image: golang:1.22-alpine
     volumes:

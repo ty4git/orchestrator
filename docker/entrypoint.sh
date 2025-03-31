@@ -1,5 +1,8 @@
 #!/bin/sh
 
+apk update
+apk add --no-cache curl
+
 # go install github.com/air-verse/air@latest
 go install github.com/go-delve/delve/cmd/dlv@latest
 

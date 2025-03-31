@@ -104,3 +104,7 @@ func (api *Api) StopTask(c *gin.Context) {
 	api.logger.Printf("Added task event \"%v\" to stop task \"%v\"\n", te.ID, taskToStop.ID)
 	c.Status(http.StatusOK)
 }
+
+func (api *Api) DeleteTask(c *gin.Context) {
+
+}

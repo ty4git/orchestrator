@@ -10,7 +10,7 @@
             "7777/tcp": {}
         },
         "PortBindings": {
-            "7778": "7777/tcp"
+            "7777": "7777/tcp"
         },
         "HealthCheck": "/health"
     }
