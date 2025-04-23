@@ -58,3 +58,6 @@ venv
 
 # debug internal files
 **/__debug_*
+
+# Temporary folders
+tmp/
