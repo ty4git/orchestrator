@@ -37,7 +37,7 @@ type DockerResult struct {
 	Result      string
 }
 
-type DockerInspectResponse struct {
+type DockerInspectResult struct {
 	Error     error
 	Container *types.ContainerJSON
 }
@@ -131,17 +131,35 @@ func (d *Docker) Stop(id string) DockerResult {
 	return DockerResult{Action: "stop", Result: "success", Error: nil}
 }
 
-func (d *Docker) Inspect(id string) *DockerInspectResponse {
+func (d *Docker) Remove(id string) DockerResult {
+	d.logger.Printf("Removing container (id = '%v')...", id)
+	ctx := context.Background()
+
+	err := d.Client.ContainerRemove(ctx, id, container.RemoveOptions{
+		RemoveVolumes: true,
+		RemoveLinks:   false,
+		Force:         false,
+	})
+	if err != nil {
+		err = fmt.Errorf("error removing container (id = '%s'): '%v'", id, err)
+		d.logger.Println(err)
+		return DockerResult{Error: err}
+	}
+
+	return DockerResult{Action: "remove", Result: "success", Error: nil}
+}
+
+func (d *Docker) Inspect(id string) *DockerInspectResult {
 	d.logger.Println("Inspecting container...")
 	ctx := context.Background()
 	resp, err := d.Client.ContainerInspect(ctx, id)
 	if err != nil {
 		d.logger.Printf("Error inspecting container: %s\n", err)
-		return &DockerInspectResponse{
+		return &DockerInspectResult{
 			Error: err,
 		}
 	}
-	return &DockerInspectResponse{
+	return &DockerInspectResult{
 		Container: &resp,
 	}
 }

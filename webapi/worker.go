@@ -102,19 +102,21 @@ func (api *Api) StopTask(c *gin.Context) {
 	}
 
 	id, _ := uuid.Parse(rawId)
-	deletingTask, ok := api.Worker.Db[id]
-	if !ok {
+	rawTask, err := api.Worker.Db.Get(id.String())
+	if err != nil {
 		msg := fmt.Sprintf("No task with id \"%v\" found", id)
 		api.logger.Println(msg)
 		c.JSON(http.StatusNotFound, gin.H{"error": msg})
 		return
 	}
 
+	deletingTask := rawTask.(*task.Task)
 	taskCopy := *deletingTask
 	taskCopy.State = task.Stopped
 	api.Worker.AddTask(&taskCopy)
 
-	api.logger.Printf("Added task \"%v\" to stop container \"%v\"\n", deletingTask.ID, deletingTask.ContainerID)
+	api.logger.Printf("Added task (id = '%v') to stop container (id = '%v')\n",
+		deletingTask.ID, deletingTask.ContainerID)
 	c.Status(http.StatusOK)
 }
 
@@ -128,12 +130,14 @@ func (api *Api) DeleteTask(c *gin.Context) {
 	}
 
 	id, _ := uuid.Parse(rawId)
-	deletingTask, ok := api.Worker.Db[id]
-	if !ok {
+	rawTask, err := api.Worker.Db.Get(id.String())
+	if err != nil {
 		api.logger.Printf("No task with id \"%v\" found", id)
 		c.Status(http.StatusNotFound)
 		return
 	}
+
+	deletingTask := rawTask.(*task.Task)
 
 	taskCopy := *deletingTask
 	taskCopy.State = task.Deleted
@@ -157,14 +161,15 @@ func (api *Api) InspectTask(c *gin.Context) {
 	}
 
 	tID, _ := uuid.Parse(rawID)
-	t, ok := api.Worker.Db[tID]
-	if !ok {
+	t, err := api.Worker.Db.Get(tID.String())
+	if err != nil {
 		msg := fmt.Sprintf("No task with ID \"%v\" found", tID)
 		api.logger.Println(msg)
 		c.JSON(http.StatusNotFound, gin.H{"error": msg})
 		return
 	}
 
-	resp := api.Worker.InspectTask(*t)
+	task := t.(*task.Task)
+	resp := api.Worker.InspectTask(*task)
 	c.JSON(http.StatusOK, resp.Container)
 }

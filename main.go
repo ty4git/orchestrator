@@ -22,7 +22,6 @@ import (
 )
 
 func main() {
-	fmt.Println("Starting orch!!!...")
 	fmt.Println("Starting orchestrator...")
 
 	err := godotenv.Load()
@@ -57,8 +56,8 @@ func runManager() {
 	defer managerTracer.Shutdown(ctx)
 
 	workers := []string{fmt.Sprintf("%s:%s", whost, wport)}
-	schedulerType := "roundrobin"
-	m := manager.New(workers, schedulerType)
+	schedulerType := "epvm"
+	m := manager.New(workers, schedulerType, "memory")
 	mapi := managerApi.NewApi(mhost, mport, m)
 
 	go m.ProcessTasks()
@@ -79,11 +78,11 @@ func runWorkers() {
 	workerTracer := initJaeger(ctx, "worker")
 	defer workerTracer.Shutdown(ctx)
 
-	w1 := worker.New()
+	w1 := worker.New("memory")
 	wapi1 := webapi.NewApi(w1, whost, wport)
-	w2 := worker.New()
+	w2 := worker.New("memory")
 	wapi2 := webapi.NewApi(w2, whost, strconv.Itoa(wportVal+1))
-	w3 := worker.New()
+	w3 := worker.New("memory")
 	wapi3 := webapi.NewApi(w3, whost, strconv.Itoa(wportVal+2))
 
 	workers := []*worker.Worker{w1, w2, w3}

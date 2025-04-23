@@ -82,11 +82,15 @@ func (api *Api) StopTask(c *gin.Context) {
 	}
 
 	id, _ := uuid.Parse(rawID)
-	taskToStop, ok := api.Manager.TaskDb[id]
-	if !ok {
+	rawTask, err := api.Manager.TaskDb.Get(id.String())
+	if err != nil {
 		msg := fmt.Sprintf("No task with ID \"%v\" found", id)
 		api.logger.Println(msg)
 		c.JSON(http.StatusNotFound, gin.H{"error": msg})
+	}
+	taskToStop, ok := rawTask.(*task.Task)
+	if !ok {
+		api.logger.Panicf("Error: %s", taskToStop)
 	}
 
 	te := task.TaskEvent{
