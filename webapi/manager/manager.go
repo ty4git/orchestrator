@@ -20,15 +20,15 @@ type ErrResponse struct {
 }
 
 type Api struct {
-	Address string
+	Host    string
 	Port    string
 	Manager *manager.Manager
 	logger  *log.Logger
 }
 
-func NewApi(address string, port string, manager *manager.Manager) *Api {
+func NewApi(host string, port string, manager *manager.Manager) *Api {
 	return &Api{
-		Address: address,
+		Host:    host,
 		Port:    port,
 		Manager: manager,
 		logger:  log.New(os.Stdout, "[orch | manager | api] ", log.LstdFlags),
@@ -39,7 +39,7 @@ func (api *Api) Start() {
 	engine := gin.Default()
 	engine.Use(otelgin.Middleware("manager API"))
 	api.createRoutes(engine)
-	engine.Run(fmt.Sprintf("%s:%s", api.Address, api.Port))
+	engine.Run(fmt.Sprintf("%s:%s", api.Host, api.Port))
 }
 
 func (api *Api) createRoutes(engine *gin.Engine) {

@@ -196,6 +196,19 @@ func (m *Manager) updateTasks(ctx context.Context) {
 	}
 }
 
+func (m *Manager) UpdateNodeStats() {
+	for {
+		for _, node := range m.WorkerNodes {
+			m.logger.Printf("Collecting stats for node %v ...", node.Name)
+			_, err := node.GetStats()
+			if err != nil {
+				log.Printf("error updating node stats: %v", err)
+			}
+		}
+		time.Sleep(15 * time.Second)
+	}
+}
+
 func (m *Manager) DoHealthChecks() {
 	for {
 		func() {

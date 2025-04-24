@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"log"
+	"orchestrator/cmd"
 	"orchestrator/manager"
 	"orchestrator/webapi"
 	managerApi "orchestrator/webapi/manager"
@@ -12,7 +11,6 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/joho/godotenv"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -24,22 +22,24 @@ import (
 func main() {
 	fmt.Println("Starting orchestrator...")
 
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatalf("Ошибка при загрузке файла .env: %v", err)
-	}
+	cmd.Execute()
 
-	partType := flag.String("name", "", "manager or worker")
-	flag.Parse()
+	// err := godotenv.Load()
+	// if err != nil {
+	// 	log.Fatalf("Ошибка при загрузке файла .env: %v", err)
+	// }
 
-	switch *partType {
-	case "manager":
-		runManager()
-	case "worker":
-		runWorkers()
-	default:
-		panic("Set up which system do you want to run: manager or worker")
-	}
+	// partType := flag.String("name", "", "manager or worker")
+	// flag.Parse()
+
+	// switch *partType {
+	// case "manager":
+	// 	runManager()
+	// case "worker":
+	// 	runWorkers()
+	// default:
+	// 	panic("Set up which system do you want to run: manager or worker")
+	// }
 }
 
 func runManager() {
@@ -78,11 +78,11 @@ func runWorkers() {
 	workerTracer := initJaeger(ctx, "worker")
 	defer workerTracer.Shutdown(ctx)
 
-	w1 := worker.New("memory")
+	w1 := worker.New("worker-1", "memory")
 	wapi1 := webapi.NewApi(w1, whost, wport)
-	w2 := worker.New("memory")
+	w2 := worker.New("worker-2", "memory")
 	wapi2 := webapi.NewApi(w2, whost, strconv.Itoa(wportVal+1))
-	w3 := worker.New("memory")
+	w3 := worker.New("worker-3", "memory")
 	wapi3 := webapi.NewApi(w3, whost, strconv.Itoa(wportVal+2))
 
 	workers := []*worker.Worker{w1, w2, w3}

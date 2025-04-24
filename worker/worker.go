@@ -22,16 +22,26 @@ type Worker struct {
 	logger    *log.Logger
 }
 
-func New(taskDbType string) *Worker {
+func New(name string, taskDbType string) *Worker {
+	logger := log.New(os.Stdout, "[orchestrator | worker | worker] ", log.LstdFlags)
+
 	var s store.Store
+	var err error
 	switch taskDbType {
 	case "memory":
 		s = store.NewInMemoryTaskStore()
+	case "persistent":
+		filename := fmt.Sprintf("%s_tasks.db", name)
+		s, err = store.NewTaskStore(filename, 0600, "tasks")
+		if err != nil {
+			logger.Panicln(err)
+		}
 	}
+
 	return &Worker{
 		Queue:  *queue.New(),
 		Db:     s,
-		logger: log.New(os.Stdout, "[orchestrator | worker | worker] ", log.LstdFlags),
+		logger: logger,
 	}
 }
 
