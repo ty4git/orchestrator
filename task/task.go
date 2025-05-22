@@ -12,7 +12,7 @@ type Task struct {
 	ID            uuid.UUID
 	ContainerID   string
 	Name          string
-	State         State
+	State         State // TODO: Make it private for task package, no one can change it
 	Image         string
 	Cpu           float64
 	Memory        int64

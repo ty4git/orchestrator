@@ -2,7 +2,7 @@ package manager
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"orchestrator/manager"
 	"orchestrator/task"
@@ -23,15 +23,25 @@ type Api struct {
 	Host    string
 	Port    string
 	Manager *manager.Manager
-	logger  *log.Logger
+	logger  *slog.Logger
 }
 
 func NewApi(host string, port string, manager *manager.Manager) *Api {
+	logger := slog.New(
+		slog.NewJSONHandler(
+			os.Stdout,
+			&slog.HandlerOptions{
+				AddSource: true,
+				Level:     slog.LevelDebug,
+			},
+		),
+	)
+
 	return &Api{
 		Host:    host,
 		Port:    port,
 		Manager: manager,
-		logger:  log.New(os.Stdout, "[orch | manager | api] ", log.LstdFlags),
+		logger:  logger,
 	}
 }
 
@@ -49,6 +59,10 @@ func (api *Api) createRoutes(engine *gin.Engine) {
 		tasks.POST("", api.StartTask)
 		tasks.DELETE("/:taskID", api.StopTask)
 	}
+	nodes := engine.Group("nodes")
+	{
+		nodes.GET("", api.GetNodes)
+	}
 }
 
 func (api *Api) GetTasks(c *gin.Context) {
@@ -59,7 +73,7 @@ func (api *Api) StartTask(c *gin.Context) {
 	te := task.TaskEvent{}
 	if err := c.BindJSON(&te); err != nil {
 		msg := fmt.Sprintf("Error unmarshalling body: %v", err)
-		api.logger.Println(msg)
+		api.logger.Warn(msg)
 		e := ErrResponse{
 			HTTPStatusCode: 400,
 			Message:        msg,
@@ -69,7 +83,7 @@ func (api *Api) StartTask(c *gin.Context) {
 	}
 
 	api.Manager.AddTask(te)
-	api.logger.Printf("Added task \"%v\"\n", te.Task.ID)
+	api.logger.Debug("Added task", "taskId", te.Task.ID)
 	c.JSON(http.StatusCreated, te.Task)
 }
 
@@ -77,20 +91,19 @@ func (api *Api) StopTask(c *gin.Context) {
 	rawID := c.Param("taskID")
 	if rawID == "" {
 		msg := "No taskID passed in request."
-		api.logger.Println(msg)
+		api.logger.Info(msg)
 		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 	}
 
 	id, _ := uuid.Parse(rawID)
 	rawTask, err := api.Manager.TaskDb.Get(id.String())
 	if err != nil {
-		msg := fmt.Sprintf("No task with ID \"%v\" found", id)
-		api.logger.Println(msg)
-		c.JSON(http.StatusNotFound, gin.H{"error": msg})
+		api.logger.Warn("No task found by Id", "taskId", id)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found!$"})
 	}
 	taskToStop, ok := rawTask.(*task.Task)
 	if !ok {
-		api.logger.Panicf("Error: %s", taskToStop)
+		api.logger.Error("Error while stopping task", "task", taskToStop)
 	}
 
 	te := task.TaskEvent{
@@ -99,16 +112,19 @@ func (api *Api) StopTask(c *gin.Context) {
 		Timestamp: time.Now(),
 	}
 
-	// we need to make a copy so we are not modifying the task in the datastore
 	taskCopy := *taskToStop
 	taskCopy.State = task.Stopped
 	te.Task = taskCopy
 	api.Manager.AddTask(te)
 
-	api.logger.Printf("Added task event \"%v\" to stop task \"%v\"\n", te.ID, taskToStop.ID)
+	api.logger.Debug("Added task event to stop task", "taskEventId", te.ID, "taskId", taskToStop.ID)
 	c.Status(http.StatusOK)
 }
 
 func (api *Api) DeleteTask(c *gin.Context) {
 
+}
+
+func (api *Api) GetNodes(c *gin.Context) {
+	c.JSON(http.StatusOK, api.Manager.WorkerNodes)
 }

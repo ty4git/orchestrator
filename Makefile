@@ -4,11 +4,11 @@ REQUESTS_DIR=./requests
 
 run-manager:
 	@echo "Manager address: http://$(CUBE_MANAGER_HOST):$(CUBE_MANAGER_PORT)"
-	go run . -name=manager
+	go run . manager --port 8080
 
 run-worker:
 	@echo "Worker address: http://$(CUBE_WORKER_HOST):$(CUBE_WORKER_PORT)"
-	go run . -name=worker
+	go run . worker --port 8081
 
 add-task:
 	curl -v -X POST $(CUBE_MANAGER_HOST):$(CUBE_MANAGER_PORT)/tasks \
@@ -32,6 +32,20 @@ stop-task:
 
 run-all:
 	docker compose up -d
+rerun-manager:
+	docker compose up -d --force-recreate manager
+rerun-kibana:
+	docker compose up -d --force-recreate elasticsearch
+	docker compose up -d --force-recreate kibana
+rerun-filebeat:
+	docker compose up -d --force-recreate filebeat
 
 stop-all:
 	docker compose down
+
+restart-filebeat:
+	docker compose down filebeat
+	docker compose build filebeat
+	docker compose up -d filebeat
+	docker compose logs filebeat
+# or docker-compose up -d --force-recreate filebeat

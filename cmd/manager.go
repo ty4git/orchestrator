@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"orchestrator/manager"
 	managerApi "orchestrator/webapi/manager"
 
@@ -27,7 +27,7 @@ func init() {
 var managerCmd = &cobra.Command{
 	Use:   "manager",
 	Short: "Manager command to operate a manager node.",
-	Long: `manager command.
+	Long: `"manager" command
 
 The manager controls the orchestration system and is responsible for:
 - Accepting tasks from users
@@ -41,7 +41,18 @@ The manager controls the orchestration system and is responsible for:
 		scheduler, _ := cmd.Flags().GetString("scheduler")
 		dbType, _ := cmd.Flags().GetString("dbType")
 
-		log.Println("Starting manager...")
+		serviceName := "orchestrator-manager"
+		serviceVersion := "1.0.0"
+		slog.SetDefault(slog.Default().With(
+			slog.Group("service",
+				"name", serviceName,
+				"version", serviceVersion,
+			),
+		))
+		slog.Info("Starting manager...")
+
+		// mhost := os.Getenv("CUBE_MANAGER_HOST")
+		// mport := os.Getenv("CUBE_MANAGER_PORT")
 
 		ctx := context.Background()
 		managerTracer := initJaeger(ctx, "manager")
@@ -51,10 +62,10 @@ The manager controls the orchestration system and is responsible for:
 		api := managerApi.NewApi(host, port, m)
 
 		go m.ProcessTasks()
-		go m.UpdateTasks()
+		go m.SynchronizeTasks()
 		go m.DoHealthChecks()
 		go m.UpdateNodeStats()
-		log.Printf("Starting manager API on http://%s:%s ...", host, port)
+		slog.Info("Starting manager API on http://%s:%s...", host, port)
 		api.Start()
 	},
 }

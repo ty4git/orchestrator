@@ -43,6 +43,8 @@ type DockerInspectResult struct {
 }
 
 func (d *Docker) Run(ctx context.Context) DockerResult {
+	d.logger.Println("Running image...")
+
 	reader, err := d.Client.ImagePull(ctx, d.Config.Image, image.PullOptions{})
 	if err != nil {
 		d.logger.Printf("Error pulling image %s: %v\n", d.Config.Image, err)
@@ -68,6 +70,7 @@ func (d *Docker) Run(ctx context.Context) DockerResult {
 	}
 
 	ports := make([]string, 0, len(d.Config.PortBindings))
+
 	// Before calling of the docker should be a proper config formatter, that formats to normalized and validated format.
 	// And here we should read it from normalized config, not from raw config
 	for hostPort, containerPort := range d.Config.PortBindings {

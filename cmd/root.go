@@ -10,7 +10,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "aorta",
+	Use:   "aura",
 	Short: "Short description of Orchestrator",
 	Long:  "Long description of Orchestrator with examples.",
 	// Uncomment the following line if your bare application

@@ -1,32 +1,102 @@
 services:
-  jaeger:
-    image: jaegertracing/jaeger:2.2.0
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms1024m -Xmx1024m"
+      - ELASTIC_PASSWORD="${ES_PASSWORD}"
+      - xpack.security.enabled=false # TODO: not for production
     ports:
-      - 16686:16686 # Интерфейс Jaeger
-      - 4317:4317   # OTLP/gRPC
-      - 4318:4318   # OTLP/HTTP
-      - 5778:5778
-      - 9411:9411
+      - "9200:9200"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    # healthcheck:
+    #   test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 10
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+
+  # kibana:
+  #   image: docker.elastic.co/kibana/kibana:8.13.4
+  #   container_name: kibana
+  #   ports:
+  #     - "5601:5601"
+  #   depends_on:
+  #     elasticsearch:
+  #       condition: service_healthy
+  #   environment:
+  #     - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+  #   networks:
+  #     - elk
+
+  # jaeger:
+  #   image: jaegertracing/jaeger:2.2.0
+  #   ports:
+  #     - 16686:16686 # Интерфейс Jaeger
+  #     - 4317:4317   # OTLP/gRPC
+  #     - 4318:4318   # OTLP/HTTP
+  #     - 5778:5778
+  #     - 9411:9411
   manager:
-    image: golang:1.22-alpine
+    image: golang:1.23.9-alpine
     volumes:
       - .:/app
       - gocache:/go
+      - app-logs-volume:/app/logs
     working_dir: /app
     command: ./docker/entrypoint.sh
     ports:
-      - "8080:8080"
+      - "8080:${AURA_MANAGER_PORT}"
       - "2345:2345"
       - "40000:40000"
-  worker:
-    image: golang:1.22-alpine
+    environment:
+      ORCHESTRATOR_PORT: ${AURA_MANAGER_PORT}
+    labels:
+      - co.elastic.logs/enabled=true
+  # worker:
+  #   image: golang:1.23.9-alpine
+  #   volumes:
+  #     - .:/app
+  #     - gocache:/go
+  #   working_dir: /app
+  #   command: go run . -name=worker
+  #   ports:
+  #     - "8081:8081"
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.13.4
+    # build:
+    #   context: ./filebeat_config
+    #   dockerfile: Dockerfile
+    restart: unless-stopped
     volumes:
-      - .:/app
-      - gocache:/go
-    working_dir: /app
-    command: go run . -name=worker
-    ports:
-      - "8081:8081"
+      - ./filebeat_config/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat-data:/usr/share/filebeat/data
+      - app-logs-volume:/mnt/applogs:ro    
+    user: root
+    environment:
+      - ES_PASSWORD=${ES_PASSWORD}
+    depends_on:
+      - manager
+      # - elasticsearch
+    command: ["filebeat", "-e", "--strict.perms=false"]
 
 volumes:
+  esdata:
   gocache:
+  filebeat-data:
+  app-logs-volume:

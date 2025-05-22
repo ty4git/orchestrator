@@ -4,6 +4,7 @@ import "slices"
 
 type State int
 
+//go:generate stringer -type=State
 const (
 	Pending State = iota
 	Scheduled

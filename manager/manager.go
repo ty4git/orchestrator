@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"orchestrator/communication"
 	"orchestrator/node"
@@ -13,7 +13,6 @@ import (
 	"orchestrator/store"
 	"orchestrator/task"
 	"orchestrator/webapi"
-	"os"
 	"strings"
 	"time"
 
@@ -33,29 +32,8 @@ type Manager struct {
 	LastWorker    int
 	WorkerNodes   []*node.Node
 	Scheduler     scheduler.Scheduler
-	logger        *log.Logger
+	logger        *slog.Logger
 }
-
-// TODO: remove after test new method New
-// func New(workers []string) *Manager {
-// 	taskDb := make(map[uuid.UUID]*task.Task)
-// 	eventDb := make(map[uuid.UUID]*task.TaskEvent)
-// 	workerTaskMap := make(map[string][]uuid.UUID)
-// 	taskWorkerMap := make(map[uuid.UUID]string)
-// 	for i := range workers {
-// 		workerTaskMap[workers[i]] = []uuid.UUID{}
-// 	}
-
-// 	return &Manager{
-// 		Pending:       *queue.New(),
-// 		Workers:       workers,
-// 		TaskDb:        taskDb,
-// 		EventDb:       eventDb,
-// 		WorkerTaskMap: workerTaskMap,
-// 		TaskWorkerMap: taskWorkerMap,
-// 		logger:        log.New(os.Stdout, "[orchestrator | manager] ", log.LstdFlags),
-// 	}
-// }
 
 func New(workers []string, schedulerType string, dbType string) *Manager {
 	workerTaskMap := make(map[string][]uuid.UUID)
@@ -91,15 +69,15 @@ func New(workers []string, schedulerType string, dbType string) *Manager {
 		es = store.NewInMemoryTaskEventStore()
 	case "persistent":
 		ts, err = store.NewTaskStore("tasks.db", 0600, "tasks")
+		if err != nil {
+			slog.Error("Unable to create task store", "error", err)
+			panic(err)
+		}
 		es, err = store.NewEventStore("events.db", 0600, "events")
-	}
-
-	if err != nil {
-		log.Fatalf("unable to create task store: %v", err)
-	}
-
-	if err != nil {
-		log.Fatalf("unable to create task event store: %v", err)
+		if err != nil {
+			slog.Error("unable to create task event store", "error", err)
+			panic(err)
+		}
 	}
 
 	return &Manager{
@@ -111,7 +89,7 @@ func New(workers []string, schedulerType string, dbType string) *Manager {
 		TaskWorkerMap: taskWorkerMap,
 		WorkerNodes:   nodes,
 		Scheduler:     s,
-		logger:        log.New(os.Stdout, "[orch | manager] ", log.LstdFlags),
+		logger:        slog.Default(),
 	}
 }
 
@@ -127,36 +105,37 @@ func (m *Manager) SelectWorker(t task.Task) (*node.Node, error) {
 	return selectedNode, nil
 }
 
-func (m *Manager) UpdateTasks() {
+func (m *Manager) SynchronizeTasks() {
 	for {
 		func() {
 			ctx := context.Background()
 			ctx, span := otel.Tracer("").Start(ctx, "UpdateTasks")
 			defer span.End()
 
-			m.logger.Println("Checking for task updates from workers")
-			m.updateTasks(ctx)
-			m.logger.Println("Task updates completed")
+			m.logger.Debug("Checking for task updates from workers...")
+			m.synchronizeTasks(ctx)
+			m.logger.Debug("Task updates completed")
 		}()
 
-		m.logger.Println("Sleeping for 15 seconds")
-		time.Sleep(15 * time.Second)
+		delay := 15 * time.Second
+		m.logger.Debug("Sleeping...", "delay", delay)
+		time.Sleep(delay)
 	}
 }
 
-func (m *Manager) updateTasks(ctx context.Context) {
+func (m *Manager) synchronizeTasks(ctx context.Context) {
 	for _, worker := range m.Workers {
-		m.logger.Printf("Checking worker %v for task updates\n", worker)
+		m.logger.Debug("Checking worker for task updates", "worker", worker)
 		url := fmt.Sprintf("http://%s/tasks", worker)
 		req := communication.NewGet(ctx, url)
-		resp, err := (&http.Client{}).Do(req)
+		resp, err := (&http.Client{}).Do(req) // TODO: don't create a new client each time
 		if err != nil {
-			m.logger.Printf("Error connecting to \"%v\": \"%v\"\n", worker, err)
+			m.logger.Debug("Error connecting to \"%v\": \"%v\"\n", worker, err)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			m.logger.Printf("Error sending request: \"%v\"\n", err)
+			m.logger.Warn("Error sending request", "error", err)
 			continue
 		}
 
@@ -164,21 +143,21 @@ func (m *Manager) updateTasks(ctx context.Context) {
 		var tasks []*task.Task
 		err = d.Decode(&tasks)
 		if err != nil {
-			m.logger.Printf("Error unmarshalling tasks: %s\n", err.Error())
+			m.logger.Error("Error unmarshalling tasks", "error", err.Error())
 		}
 
 		for _, t := range tasks {
-			m.logger.Printf("Attempting to update task \"%v\"\n", t.ID)
+			m.logger.Debug("Attempting to update task...", "taskId", t.ID)
 
 			result, err := m.TaskDb.Get(t.ID.String())
 			if err != nil {
-				m.logger.Printf("Getting task error: %s\n", err)
+				m.logger.Warn("Error while getting task", "error", err)
 				return
 			}
 
 			persistedTask, ok := result.(*task.Task)
 			if !ok {
-				m.logger.Printf("cannot convert result %v to task.Task type\n", result)
+				m.logger.Debug("Cannot convert stored object to task.Task type", "storedObject", result)
 				continue
 			}
 
@@ -199,13 +178,33 @@ func (m *Manager) updateTasks(ctx context.Context) {
 func (m *Manager) UpdateNodeStats() {
 	for {
 		for _, node := range m.WorkerNodes {
-			m.logger.Printf("Collecting stats for node %v ...", node.Name)
+			m.logger.Debug("Collecting stats for node...", "nodeName", node.Name)
 			_, err := node.GetStats()
 			if err != nil {
-				log.Printf("error updating node stats: %v", err)
+				m.logger.Error("Error updating node stats", "error", err)
 			}
 		}
-		time.Sleep(15 * time.Second)
+
+		delay := 15 * time.Second
+		time.Sleep(delay)
+	}
+}
+
+func (m *Manager) ProcessTasks() {
+	for {
+		func() {
+			ctx := context.Background()
+			tracer := otel.Tracer("Task processing")
+			ctx, span := tracer.Start(ctx, "ProcessTasks")
+			defer span.End()
+
+			m.logger.Debug("Processing pending tasks...")
+			m.SendWork(ctx)
+		}()
+
+		delay := 10 * time.Second
+		m.logger.Debug("Sleeping...", "delay", delay)
+		time.Sleep(delay)
 	}
 }
 
@@ -216,20 +215,21 @@ func (m *Manager) DoHealthChecks() {
 			ctx, span := otel.Tracer("Health checking").Start(ctx, "DoHealthChecks")
 			defer span.End()
 
-			m.logger.Println("Performing task health check")
+			m.logger.Debug("Performing task health check...")
 			m.doHealthChecks(ctx)
-			m.logger.Println("Task health checks completed")
+			m.logger.Debug("Task health checks completed")
 		}()
 
-		m.logger.Println("Sleeping for 60 seconds")
-		time.Sleep(60 * time.Second)
+		delay := 60 * time.Second
+		m.logger.Debug("Sleeping...", "delay", delay)
+		time.Sleep(delay)
 	}
 }
 
 func (m *Manager) doHealthChecks(ctx context.Context) {
 	tasks, err := m.TaskDb.List()
 	if err != nil {
-		m.logger.Panicf("Error: %s", err)
+		m.logger.Error(err.Error())
 	}
 	for _, t := range tasks.([]*task.Task) {
 		if t.State == task.Running && t.RestartCount < 3 {
@@ -249,32 +249,31 @@ func (m *Manager) checkTaskHealth(ctx context.Context, t task.Task) error {
 	ctx, span := otel.Tracer("").Start(ctx, "checkTaskHealth")
 	defer span.End()
 
-	m.logger.Printf("Calling health check for task %s: %s\n", t.ID, t.HealthCheck)
+	m.logger.Debug("Calling health check for task", "taskId", t.ID, "healthCheckPath", t.HealthCheck)
 
 	w := m.TaskWorkerMap[t.ID]
 	hostPort := getHostPort(t.HostPorts)
 	worker := strings.Split(w, ":")
 	if hostPort == nil {
-		m.logger.Printf("Have not collected task %s host port yet. Skipping.\n", t.ID)
+		m.logger.Debug("Have not collected task host port yet. Skipping.", "taskId", t.ID)
 		return nil
 	}
 	url := fmt.Sprintf("http://%s:%s%s", worker[0], *hostPort, t.HealthCheck)
-	m.logger.Printf("Calling health check for task \"%s\": \"%s\"\n", t.ID, url)
+	m.logger.Debug("Calling health check for task", "taskId", t.ID, "healthCheckPath", url)
 	resp, err := (&http.Client{}).Do(communication.NewGet(ctx, url))
 	if err != nil {
-		msg := fmt.Sprintf("Error connecting to health check \"%s\"", url)
-		m.logger.Println(msg)
+		msg := "Error connecting to the health check endpoint of task"
+		m.logger.Debug(msg, "healthCheckPath", url)
 		return errors.New(msg)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		msg := fmt.Sprintf("Error health check for task %s did not return 200\n", t.ID)
-		m.logger.Println(msg)
+		msg := fmt.Sprintln("Error of health check result, did not return 'ok' status")
+		m.logger.Debug(msg, "taskId", t.ID)
 		return errors.New(msg)
 	}
 
-	m.logger.Printf("Task %s health check response: %v\n", t.ID, resp.StatusCode)
-
+	m.logger.Debug("Task health check response", "taskId", t.ID, "StatusCode", resp.StatusCode)
 	return nil
 }
 
@@ -306,7 +305,7 @@ func (m *Manager) restartTask(ctx context.Context, t *task.Task) {
 	}
 	data, err := json.Marshal(te)
 	if err != nil {
-		m.logger.Printf("Unable to marshal task object: %v.\n", t)
+		m.logger.Error("Unable to marshal task object", "task", t)
 		return
 	}
 
@@ -314,7 +313,7 @@ func (m *Manager) restartTask(ctx context.Context, t *task.Task) {
 	req := communication.NewPost(ctx, url, communication.NewJSON(data))
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		m.logger.Printf("Error connecting to %v: %v\n", w, err)
+		m.logger.Error("Error connecting to %v: %v\n", w, err)
 		m.Pending.Enqueue(t)
 		return
 	}
@@ -324,20 +323,20 @@ func (m *Manager) restartTask(ctx context.Context, t *task.Task) {
 		e := webapi.ErrResponse{}
 		err := d.Decode(&e)
 		if err != nil {
-			m.logger.Printf("Error decoding response: %s\n", err.Error())
+			m.logger.Error("Error decoding response", "error", err.Error())
 			return
 		}
-		m.logger.Printf("Response error (%d): %s\n", e.HTTPStatusCode, e.Message)
+		m.logger.Error("Response error (%d): %s\n", e.HTTPStatusCode, e.Message)
 		return
 	}
 
 	newTask := task.Task{}
 	err = d.Decode(&newTask)
 	if err != nil {
-		m.logger.Printf("Error decoding response: %s\n", err.Error())
+		m.logger.Error("Error decoding response: %s\n", err.Error())
 		return
 	}
-	m.logger.Printf("%#v\n", t)
+	m.logger.Debug("%#v\n", t)
 }
 
 func (m *Manager) SendWork(ctx context.Context) {
@@ -349,23 +348,23 @@ func (m *Manager) SendWork(ctx context.Context) {
 		te := e.(task.TaskEvent)
 		err := m.EventDb.Put(te.ID.String(), &te)
 		if err != nil {
-			m.logger.Printf("Error attempting to store task event \"Id = %s\": %s\n", te.ID.String(), err)
+			m.logger.Error("Error attempting to store task event \"Id = %s\": %s\n", te.ID.String(), err)
 			return
 		}
 
 		t := te.Task
-		m.logger.Printf(`Pulled "%v" off pending queue\n`, t)
+		m.logger.Debug("Pulled task off pending queue (task = %v)\n", t)
 
-		taskWorker, ok := m.TaskWorkerMap[te.Task.ID]
+		taskWorker, ok := m.TaskWorkerMap[t.ID]
 		if ok {
 			rawTask, err := m.TaskDb.Get(t.ID.String())
 			if err != nil {
-				m.logger.Printf("Unable to schedule task: %s", err)
+				m.logger.Error("Unable to schedule task: %s", err)
 				return
 			}
 			persistedTask, ok := rawTask.(*task.Task)
 			if !ok {
-				m.logger.Printf("Unable to convert task to task.Task type")
+				m.logger.Error("Unable to convert task to task.Task type")
 				return
 			}
 
@@ -373,9 +372,10 @@ func (m *Manager) SendWork(ctx context.Context) {
 				m.stopTask(ctx, taskWorker, te.Task.ID.String())
 				return
 			}
-			log.Printf(`invalid request: existing task "%s" is in state "%v" and`+
-				`cannot transition to the completed state\n`,
-				persistedTask.ID.String(), persistedTask.State)
+
+			m.logger.Error("invalid request: existing task (task = %s) is in state (state = %s) and"+
+				" cannot transition to the completed state\n",
+				persistedTask.ID.String(), persistedTask.State.String())
 			return
 		}
 
@@ -383,7 +383,7 @@ func (m *Manager) SendWork(ctx context.Context) {
 
 		w, err := m.SelectWorker(t)
 		if err != nil {
-			m.logger.Printf(`error selecting worker for task "%s": "%v"\n`, t.ID, err)
+			m.logger.Error(`error selecting worker for task "%s": "%v"\n`, t.ID, err)
 		}
 
 		m.WorkerTaskMap[w.Name] = append(m.WorkerTaskMap[w.Name], te.Task.ID)
@@ -392,19 +392,19 @@ func (m *Manager) SendWork(ctx context.Context) {
 		t.State = task.Scheduled
 		err = m.TaskDb.Put(t.ID.String(), &t)
 		if err != nil {
-			m.logger.Panicf("Error: %s", err)
+			m.logger.Error("Error: %s", err)
 		}
 
 		data, err := json.Marshal(te)
 		if err != nil {
-			m.logger.Printf("Unable to marshal task object: %v.\n", t)
+			m.logger.Error("Unable to marshal task object: %v.\n", t)
 		}
 
 		url := fmt.Sprintf("http://%s/tasks", w.Name)
 		req := communication.NewPost(ctx, url, communication.NewJSON(data))
 		resp, err := (&http.Client{}).Do(req)
 		if err != nil {
-			m.logger.Printf("Error connecting to \"%v\": %v\n", url, err)
+			m.logger.Error("Error connecting to \"%v\": %v\n", url, err)
 			m.Pending.Enqueue(te)
 			return
 		}
@@ -414,22 +414,22 @@ func (m *Manager) SendWork(ctx context.Context) {
 			e := webapi.ErrResponse{}
 			err := d.Decode(&e)
 			if err != nil {
-				m.logger.Printf("Error decoding response: %s\n", err.Error())
+				m.logger.Error("Error decoding response", "error", err.Error())
 				return
 			}
-			m.logger.Printf("Response error (%d): %s\n", e.HTTPStatusCode, e.Message)
+			m.logger.Error("Response error (%d): %s\n", e.HTTPStatusCode, e.Message)
 			return
 		}
 
 		t = task.Task{}
 		err = d.Decode(&t)
 		if err != nil {
-			m.logger.Printf("Error decoding response: %s\n", err.Error())
+			m.logger.Error("Error decoding response", "error", err.Error())
 			return
 		}
-		m.logger.Printf("%#v\n", t)
+		m.logger.Debug("%#v\n", t)
 	} else {
-		m.logger.Println("No work in the queue")
+		m.logger.Info("No work in the queue")
 	}
 }
 
@@ -440,27 +440,10 @@ func (m *Manager) AddTask(te task.TaskEvent) {
 func (m *Manager) GetTasks() []*task.Task {
 	tasks, err := m.TaskDb.List()
 	if err != nil {
-		m.logger.Printf("Error getting list of tasks: %v\n", err)
+		m.logger.Error("Error of getting list of tasks: %v\n", err)
 		return nil
 	}
 	return tasks.([]*task.Task)
-}
-
-func (m *Manager) ProcessTasks() {
-	for {
-		func() {
-			ctx := context.Background()
-			tracer := otel.Tracer("Task processing")
-			ctx, span := tracer.Start(ctx, "ProcessTasks")
-			defer span.End()
-
-			m.logger.Println("Processing any tasks in the queue")
-			m.SendWork(ctx)
-			m.logger.Println("Sleeping for 10 seconds")
-		}()
-
-		time.Sleep(10 * time.Second)
-	}
 }
 
 func (m *Manager) stopTask(ctx context.Context, worker string, taskID string) {
@@ -469,12 +452,12 @@ func (m *Manager) stopTask(ctx context.Context, worker string, taskID string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		m.logger.Printf(`error connecting to worker at "%s": "%v"\n`, url, err)
+		m.logger.Error(`error connecting to worker at "%s": "%v"\n`, url, err)
 		return
 	}
 	if resp.StatusCode != 204 {
-		m.logger.Printf(`Error sending request: "%v"\n`, err)
+		m.logger.Error(`Error sending request: "%v"\n`, err)
 		return
 	}
-	m.logger.Printf("task %s has been scheduled to be stopped", taskID)
+	m.logger.Info("Task has been scheduled to be stopped", "taskId", taskID)
 }

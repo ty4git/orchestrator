@@ -106,6 +106,7 @@ func (w *Worker) runTask(ctx context.Context) task.DockerResult {
 
 	taskPersisted := rawTask.(*task.Task)
 
+	// TODO: Remove
 	// if taskPersisted == nil {
 	// 	if taskQueued.State != task.Scheduled {
 	// 		err := fmt.Errorf("task \"%v\" has state \"%v\", but expected \"%v\"", taskQueued.ID, taskQueued.State, task.Scheduled)

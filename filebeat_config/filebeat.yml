@@ -1,0 +1,67 @@
+## first implementation
+filebeat.inputs:
+- type: filestream
+  id: filebeat-manager-logs
+  enabled: true
+  paths:
+    - /mnt/applogs/orchestrator.log
+  parsers:
+    - ndjson:
+        keys_under_root: true
+        overwrite_keys: true
+        message_key: "msg"
+        add_error_key: true
+
+# filebeat.autodiscover:
+#   providers:
+#     - type: docker
+#       hints.enabled: true
+#       templates:
+#         - condition:
+#             equals:
+#               docker.container.labels.co.elastic.logs/enabled: "true"
+#           config:
+#             - type: filestream
+#               id: "${data.docker.container.id}-logs"
+#               paths:
+#                 - "/var/lib/docker/containers/*/*.log"
+#               parsers:
+#                 - ndjson:
+#                     keys_under_root: true
+#                     overwrite_keys: true
+#                     message_key: "log"
+#                     add_error_key: true
+
+setup.template.name: "orchestrator"
+setup.template.pattern: "orchestrator-index-*"
+
+#----------------------------- Processors ------------------------------------------
+processors:
+  - add_docker_metadata: ~
+
+# processors:
+# - add_docker_metadata:s
+#     host: "unix:///var/run/docker.sock"
+
+#----------------------------- Elasticsearch output --------------------------------
+# output.elasticsearch:
+#   hosts: ["elasticsearch:9200"]
+#   # index: "go-app-stdout-%{+yyyy.MM.dd}" # Новое имя индекса
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  index: "orchestrator-index-%{+yyyy.MM.dd}"
+  username: "elastic"
+  password: "${ES_PASSWORD}"
+
+# output.console:
+#   pretty: true
+
+#----------------------------- Logging --------------------------------
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat-input
+  keepfiles: 7
+  permissions: 0644
