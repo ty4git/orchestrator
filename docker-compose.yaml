@@ -43,14 +43,15 @@ services:
   #   networks:
   #     - elk
 
-  # jaeger:
-  #   image: jaegertracing/jaeger:2.2.0
-  #   ports:
-  #     - 16686:16686 # Интерфейс Jaeger
-  #     - 4317:4317   # OTLP/gRPC
-  #     - 4318:4318   # OTLP/HTTP
-  #     - 5778:5778
-  #     - 9411:9411
+  jaeger:
+    image: jaegertracing/jaeger:2.2.0
+    ports:
+      - 16686:16686 # Интерфейс Jaeger
+      - 4317:4317   # OTLP/gRPC
+      - 4318:4318   # OTLP/HTTP
+      - 5778:5778
+      - 9411:9411
+
   manager:
     image: golang:1.23.9-alpine
     volumes:
@@ -60,11 +61,11 @@ services:
     working_dir: /app
     command: ./docker/entrypoint.sh
     ports:
-      - "8080:${AURA_MANAGER_PORT}"
+      - "8080:${ORCHESTRATOR_MANAGER_PORT}"
       - "2345:2345"
       - "40000:40000"
-    environment:
-      ORCHESTRATOR_PORT: ${AURA_MANAGER_PORT}
+    # environment:
+    #   ORCHESTRATOR_PORT: ${ORCHESTRATOR_MANAGER_PORT}
     labels:
       - co.elastic.logs/enabled=true
   # worker:
@@ -86,7 +87,7 @@ services:
       - ./filebeat_config/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - filebeat-data:/usr/share/filebeat/data
-      - app-logs-volume:/mnt/applogs:ro    
+      - app-logs-volume:/mnt/applogs:ro
     user: root
     environment:
       - ES_PASSWORD=${ES_PASSWORD}

@@ -15,6 +15,11 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
+const (
+	ServiceName    = "orchestrator-manager"
+	ServiceVersion = "1.0.0"
+)
+
 func init() {
 	rootCmd.AddCommand(managerCmd)
 	managerCmd.Flags().StringP("host", "H", "0.0.0.0", "Hostname or IP address")
@@ -41,12 +46,10 @@ The manager controls the orchestration system and is responsible for:
 		scheduler, _ := cmd.Flags().GetString("scheduler")
 		dbType, _ := cmd.Flags().GetString("dbType")
 
-		serviceName := "orchestrator-manager"
-		serviceVersion := "1.0.0"
 		slog.SetDefault(slog.Default().With(
 			slog.Group("service",
-				"name", serviceName,
-				"version", serviceVersion,
+				"name", ServiceName,
+				"version", ServiceVersion,
 			),
 		))
 		slog.Info("Starting manager...")
@@ -55,7 +58,7 @@ The manager controls the orchestration system and is responsible for:
 		// mport := os.Getenv("CUBE_MANAGER_PORT")
 
 		ctx := context.Background()
-		managerTracer := initJaeger(ctx, "manager")
+		managerTracer := initJaeger(ctx, ServiceName)
 		defer managerTracer.Shutdown(ctx)
 
 		m := manager.New(workers, scheduler, dbType)
@@ -65,7 +68,7 @@ The manager controls the orchestration system and is responsible for:
 		go m.SynchronizeTasks()
 		go m.DoHealthChecks()
 		go m.UpdateNodeStats()
-		slog.Info("Starting manager API on http://%s:%s...", host, port)
+		slog.Info("Starting manager API on http://{host}:{port}...", "host", host, "port", port)
 		api.Start()
 	},
 }
@@ -84,7 +87,7 @@ func initJaeger(ctx context.Context, serviceName string) *sdktrace.TracerProvide
 	res := resource.NewWithAttributes(
 		semconv.SchemaURL,
 		semconv.ServiceNameKey.String(serviceName),
-		semconv.ServiceVersionKey.String("1.0.0"),
+		semconv.ServiceVersionKey.String(ServiceVersion),
 		semconv.DeploymentEnvironmentKey.String("development"),
 	)
 

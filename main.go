@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"orchestrator/cmd"
 	"orchestrator/manager"
@@ -29,13 +28,13 @@ const (
 )
 
 func main() {
-	fmt.Println("Starting orchestrator...")
+	slog.Info("Starting orchestrator...")
 
-	log.Println("Configuring logger...")
+	slog.Info("Configuring logger...")
 	logFileDir := "./logs"
 	logFileName := "orchestrator.log"
 	logFilePath := path.Join(logFileDir, logFileName)
-	if err := os.MkdirAll("./logs", 0755); err != nil {
+	if err := os.MkdirAll(logFileDir, 0755); err != nil {
 		slog.Error("Could not create directory of logs", "error", err)
 		panic(err)
 	}
@@ -57,7 +56,7 @@ func main() {
 		"deployment.environment", Environment,
 	)
 	slog.SetDefault(logger)
-	slog.Debug("Logger configured.")
+	slog.Info("Logger configured.")
 
 	cmd.Execute()
 

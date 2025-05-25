@@ -4,6 +4,7 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -19,6 +20,8 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() {
+	slog.Info("Executing command...")
+
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
