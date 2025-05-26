@@ -426,7 +426,7 @@ func (m *Manager) SendWork(ctx context.Context) {
 				m.logger.Error("Error decoding response", "error", err.Error())
 				return
 			}
-			m.logger.Warn("Response error status code", "status.code", e.HTTPStatusCode, "error" e.Message)
+			m.logger.Warn("Response error status code", "status.code", e.HTTPStatusCode, "error", e.Message)
 			return
 		}
 
