@@ -93,6 +93,14 @@ func New(workers []string, schedulerType string, dbType string) *Manager {
 	}
 }
 
+func (m *Manager) Run() *Manager {
+	go m.ProcessTasks()
+	go m.SynchronizeTasks()
+	go m.DoHealthChecks()
+	go m.UpdateNodeStats()
+	return m
+}
+
 func (m *Manager) SelectWorker(t task.Task) (*node.Node, error) {
 	candidates := m.Scheduler.SelectCandidateNodes(t, m.WorkerNodes)
 	if candidates == nil {
@@ -126,11 +134,12 @@ func (m *Manager) SynchronizeTasks() {
 func (m *Manager) synchronizeTasks(ctx context.Context) {
 	for _, worker := range m.Workers {
 		m.logger.Debug("Checking worker for task updates", "worker", worker)
+
 		url := fmt.Sprintf("http://%s/tasks", worker)
 		req := communication.NewGet(ctx, url)
 		resp, err := (&http.Client{}).Do(req) // TODO: don't create a new client each time
 		if err != nil {
-			m.logger.Debug("Error connecting to \"%v\": \"%v\"\n", worker, err)
+			m.logger.Warn("Error connecting to worker", "worker", worker, "err", err)
 			continue
 		}
 
@@ -255,7 +264,7 @@ func (m *Manager) checkTaskHealth(ctx context.Context, t task.Task) error {
 	hostPort := getHostPort(t.HostPorts)
 	worker := strings.Split(w, ":")
 	if hostPort == nil {
-		m.logger.Debug("Have not collected task host port yet. Skipping.", "taskId", t.ID)
+		m.logger.Info("Have not collected task host port yet. Skipping.", "taskId", t.ID)
 		return nil
 	}
 	url := fmt.Sprintf("http://%s:%s%s", worker[0], *hostPort, t.HealthCheck)
@@ -263,13 +272,13 @@ func (m *Manager) checkTaskHealth(ctx context.Context, t task.Task) error {
 	resp, err := (&http.Client{}).Do(communication.NewGet(ctx, url))
 	if err != nil {
 		msg := "Error connecting to the health check endpoint of task"
-		m.logger.Debug(msg, "healthCheckPath", url)
+		m.logger.Warn(msg, "healthCheckPath", url)
 		return errors.New(msg)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		msg := fmt.Sprintln("Error of health check result, did not return 'ok' status")
-		m.logger.Debug(msg, "taskId", t.ID)
+		m.logger.Warn(msg, "taskId", t.ID)
 		return errors.New(msg)
 	}
 
@@ -313,7 +322,7 @@ func (m *Manager) restartTask(ctx context.Context, t *task.Task) {
 	req := communication.NewPost(ctx, url, communication.NewJSON(data))
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		m.logger.Error("Error connecting to %v: %v\n", w, err)
+		m.logger.Error("Error connecting to worker", "worker", w, "error", err)
 		m.Pending.Enqueue(t)
 		return
 	}
@@ -404,7 +413,7 @@ func (m *Manager) SendWork(ctx context.Context) {
 		req := communication.NewPost(ctx, url, communication.NewJSON(data))
 		resp, err := (&http.Client{}).Do(req)
 		if err != nil {
-			m.logger.Error("Error connecting to \"%v\": %v\n", url, err)
+			m.logger.Warn("Error connecting to worker endpoint", "worker.endpoint", url, "error", err)
 			m.Pending.Enqueue(te)
 			return
 		}
@@ -417,7 +426,7 @@ func (m *Manager) SendWork(ctx context.Context) {
 				m.logger.Error("Error decoding response", "error", err.Error())
 				return
 			}
-			m.logger.Error("Response error (%d): %s\n", e.HTTPStatusCode, e.Message)
+			m.logger.Warn("Response error status code", "status.code", e.HTTPStatusCode, "error" e.Message)
 			return
 		}
 
@@ -452,7 +461,7 @@ func (m *Manager) stopTask(ctx context.Context, worker string, taskID string) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		m.logger.Error(`error connecting to worker at "%s": "%v"\n`, url, err)
+		m.logger.Error(`error connecting to the worker endpoint`, "worker.endpoint", url, "error", err)
 		return
 	}
 	if resp.StatusCode != 204 {

@@ -1,4 +1,3 @@
-## first implementation
 filebeat.inputs:
 - type: filestream
   id: filebeat-manager-logs
@@ -39,15 +38,7 @@ setup.template.pattern: "orchestrator-index-*"
 processors:
   - add_docker_metadata: ~
 
-# processors:
-# - add_docker_metadata:s
-#     host: "unix:///var/run/docker.sock"
-
 #----------------------------- Elasticsearch output --------------------------------
-# output.elasticsearch:
-#   hosts: ["elasticsearch:9200"]
-#   # index: "go-app-stdout-%{+yyyy.MM.dd}" # Новое имя индекса
-
 output.elasticsearch:
   hosts: ["http://elasticsearch:9200"]
   index: "orchestrator-index-%{+yyyy.MM.dd}"

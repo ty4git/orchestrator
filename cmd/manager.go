@@ -3,21 +3,19 @@ package cmd
 import (
 	"context"
 	"log/slog"
+	"orchestrator/infrastructure"
 	"orchestrator/manager"
 	managerApi "orchestrator/webapi/manager"
 
 	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
 const (
 	ServiceName    = "orchestrator-manager"
 	ServiceVersion = "1.0.0"
+
+	DeploymentEnvironment = "development"
 )
 
 func init() {
@@ -47,66 +45,21 @@ The manager controls the orchestration system and is responsible for:
 		dbType, _ := cmd.Flags().GetString("dbType")
 
 		slog.SetDefault(slog.Default().With(
-			slog.Group("service",
-				"name", ServiceName,
-				"version", ServiceVersion,
-			),
+			string(semconv.ServiceNameKey), ServiceName,
+			string(semconv.ServiceVersionKey), ServiceVersion,
 		))
+
 		slog.Info("Starting manager...")
 
-		// mhost := os.Getenv("CUBE_MANAGER_HOST")
-		// mport := os.Getenv("CUBE_MANAGER_PORT")
-
 		ctx := context.Background()
-		managerTracer := initJaeger(ctx, ServiceName)
+		managerTracer := infrastructure.InitJaeger(ctx, ServiceName, ServiceVersion, DeploymentEnvironment)
 		defer managerTracer.Shutdown(ctx)
 
-		m := manager.New(workers, scheduler, dbType)
-		api := managerApi.NewApi(host, port, m)
+		m := manager.
+			New(workers, scheduler, dbType).
+			Run()
 
-		go m.ProcessTasks()
-		go m.SynchronizeTasks()
-		go m.DoHealthChecks()
-		go m.UpdateNodeStats()
-		slog.Info("Starting manager API on http://{host}:{port}...", "host", host, "port", port)
+		api := managerApi.NewApi(m, host, port)
 		api.Start()
 	},
-}
-
-func initJaeger(ctx context.Context, serviceName string) *sdktrace.TracerProvider {
-	exporter, err := otlptracehttp.New(
-		ctx,
-		otlptracehttp.WithEndpoint("localhost:4318"),
-		otlptracehttp.WithInsecure(), // TODO: only for local development
-	)
-
-	if err != nil {
-		panic(err)
-	}
-
-	res := resource.NewWithAttributes(
-		semconv.SchemaURL,
-		semconv.ServiceNameKey.String(serviceName),
-		semconv.ServiceVersionKey.String(ServiceVersion),
-		semconv.DeploymentEnvironmentKey.String("development"),
-	)
-
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-
-		// TODO: change it, only for tests
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-	)
-
-	otel.SetTextMapPropagator(
-		propagation.NewCompositeTextMapPropagator(
-			propagation.TraceContext{},
-			propagation.Baggage{},
-		),
-	)
-
-	otel.SetTracerProvider(tp)
-
-	return tp
 }

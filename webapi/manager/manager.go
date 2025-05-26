@@ -6,12 +6,16 @@ import (
 	"net/http"
 	"orchestrator/manager"
 	"orchestrator/task"
-	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
+)
+
+const (
+	APIName = "orchestrator-manager-api"
 )
 
 type ErrResponse struct {
@@ -26,15 +30,9 @@ type Api struct {
 	logger  *slog.Logger
 }
 
-func NewApi(host string, port string, manager *manager.Manager) *Api {
-	logger := slog.New(
-		slog.NewJSONHandler(
-			os.Stdout,
-			&slog.HandlerOptions{
-				AddSource: true,
-				Level:     slog.LevelDebug,
-			},
-		),
+func NewApi(manager *manager.Manager, host string, port string) *Api {
+	logger := slog.Default().With(
+		string(semconv.ServiceNameKey), APIName,
 	)
 
 	return &Api{
@@ -46,8 +44,11 @@ func NewApi(host string, port string, manager *manager.Manager) *Api {
 }
 
 func (api *Api) Start() {
+	slog.Info(fmt.Sprintf("Starting \"%s\" on http://%s:%s...", APIName, api.Host, api.Port),
+		"host", api.Host, "port", api.Port)
+
 	engine := gin.Default()
-	engine.Use(otelgin.Middleware("manager API"))
+	engine.Use(otelgin.Middleware(APIName))
 	api.createRoutes(engine)
 	engine.Run(fmt.Sprintf("%s:%s", api.Host, api.Port))
 }

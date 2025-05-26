@@ -14,11 +14,6 @@ services:
         hard: -1
     volumes:
       - esdata:/usr/share/elasticsearch/data
-    # healthcheck:
-    #   test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
-    #   interval: 10s
-    #   timeout: 5s
-    #   retries: 10
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.4
@@ -46,7 +41,7 @@ services:
   jaeger:
     image: jaegertracing/jaeger:2.2.0
     ports:
-      - 16686:16686 # Интерфейс Jaeger
+      - 16686:16686 # Jaeger
       - 4317:4317   # OTLP/gRPC
       - 4318:4318   # OTLP/HTTP
       - 5778:5778
@@ -64,8 +59,8 @@ services:
       - "8080:${ORCHESTRATOR_MANAGER_PORT}"
       - "2345:2345"
       - "40000:40000"
-    # environment:
-    #   ORCHESTRATOR_PORT: ${ORCHESTRATOR_MANAGER_PORT}
+    environment:
+      ORCHESTRATOR_PORT: ${ORCHESTRATOR_MANAGER_PORT}
     labels:
       - co.elastic.logs/enabled=true
   # worker:
@@ -79,9 +74,6 @@ services:
   #     - "8081:8081"
   filebeat:
     image: docker.elastic.co/beats/filebeat:8.13.4
-    # build:
-    #   context: ./filebeat_config
-    #   dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
       - ./filebeat_config/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
@@ -93,7 +85,6 @@ services:
       - ES_PASSWORD=${ES_PASSWORD}
     depends_on:
       - manager
-      # - elasticsearch
     command: ["filebeat", "-e", "--strict.perms=false"]
 
 volumes:

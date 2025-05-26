@@ -3,15 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"orchestrator/cmd"
+	"orchestrator/infrastructure"
 	"orchestrator/manager"
 	"orchestrator/webapi"
 	managerApi "orchestrator/webapi/manager"
 	"orchestrator/worker"
 	"os"
-	"path"
 	"strconv"
 
 	"go.opentelemetry.io/otel"
@@ -20,7 +19,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const (
@@ -28,36 +26,9 @@ const (
 )
 
 func main() {
+	_ = infrastructure.NewLogger(Environment)
+
 	slog.Info("Starting orchestrator...")
-
-	slog.Info("Configuring logger...")
-	logFileDir := "./logs"
-	logFileName := "orchestrator.log"
-	logFilePath := path.Join(logFileDir, logFileName)
-	if err := os.MkdirAll(logFileDir, 0755); err != nil {
-		slog.Error("Could not create directory of logs", "error", err)
-		panic(err)
-	}
-	logFileWriter := &lumberjack.Logger{
-		Filename:   logFilePath,
-		MaxSize:    10,
-		MaxBackups: 3,
-		MaxAge:     28,
-		Compress:   true,
-		LocalTime:  true,
-	}
-	multiWriter := io.MultiWriter(os.Stdout, logFileWriter)
-	logger := slog.New(
-		slog.NewJSONHandler(multiWriter, &slog.HandlerOptions{
-			AddSource: true,
-			Level:     slog.LevelDebug,
-		}),
-	).With(
-		"deployment.environment", Environment,
-	)
-	slog.SetDefault(logger)
-	slog.Info("Logger configured.")
-
 	cmd.Execute()
 
 	// err := godotenv.Load()
@@ -94,7 +65,7 @@ func runManager() {
 	workers := []string{fmt.Sprintf("%s:%s", whost, wport)}
 	schedulerType := "epvm"
 	m := manager.New(workers, schedulerType, "memory")
-	mapi := managerApi.NewApi(mhost, mport, m)
+	mapi := managerApi.NewApi(m, mhost, mport)
 
 	go m.ProcessTasks()
 	go m.SynchronizeTasks()
