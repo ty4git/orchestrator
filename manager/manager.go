@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"orchestrator/communication"
+	"orchestrator/infrastructure"
 	"orchestrator/node"
 	"orchestrator/scheduler"
 	"orchestrator/store"
@@ -19,7 +20,9 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type Manager struct {
@@ -32,7 +35,8 @@ type Manager struct {
 	LastWorker    int
 	WorkerNodes   []*node.Node
 	Scheduler     scheduler.Scheduler
-	logger        *slog.Logger
+	logger        *infrastructure.Logger
+	client        *http.Client
 }
 
 func New(workers []string, schedulerType string, dbType string) *Manager {
@@ -80,6 +84,10 @@ func New(workers []string, schedulerType string, dbType string) *Manager {
 		}
 	}
 
+	logger := infrastructure.NewLogger(slog.Default())
+	client := http.DefaultClient
+	client.Transport = otelhttp.NewTransport(http.DefaultTransport)
+
 	return &Manager{
 		Pending:       *queue.New(),
 		Workers:       workers,
@@ -89,7 +97,8 @@ func New(workers []string, schedulerType string, dbType string) *Manager {
 		TaskWorkerMap: taskWorkerMap,
 		WorkerNodes:   nodes,
 		Scheduler:     s,
-		logger:        slog.Default(),
+		logger:        logger,
+		client:        client,
 	}
 }
 
@@ -104,7 +113,7 @@ func (m *Manager) Run() *Manager {
 func (m *Manager) SelectWorker(t task.Task) (*node.Node, error) {
 	candidates := m.Scheduler.SelectCandidateNodes(t, m.WorkerNodes)
 	if candidates == nil {
-		msg := fmt.Sprintf(`No available candidates match resource request for task "%v"`, t.ID)
+		msg := fmt.Sprintf(`No available candidates match resource request for task "%v"`, t.Id)
 		err := errors.New(msg)
 		return nil, err
 	}
@@ -117,12 +126,12 @@ func (m *Manager) SynchronizeTasks() {
 	for {
 		func() {
 			ctx := context.Background()
-			ctx, span := otel.Tracer("").Start(ctx, "UpdateTasks")
+			ctx, span := otel.Tracer("").Start(ctx, "SynchronizeTasks")
 			defer span.End()
 
-			m.logger.Debug("Checking for task updates from workers...")
+			m.logger.DebugContext(ctx, "Checking for task updates from workers...")
 			m.synchronizeTasks(ctx)
-			m.logger.Debug("Task updates completed")
+			m.logger.DebugContext(ctx, "Task updates completed")
 		}()
 
 		delay := 15 * time.Second
@@ -132,14 +141,19 @@ func (m *Manager) SynchronizeTasks() {
 }
 
 func (m *Manager) synchronizeTasks(ctx context.Context) {
+	_, span := otel.Tracer("").Start(ctx, "")
+	defer span.End()
+
 	for _, worker := range m.Workers {
 		m.logger.Debug("Checking worker for task updates", "worker", worker)
 
 		url := fmt.Sprintf("http://%s/tasks", worker)
 		req := communication.NewGet(ctx, url)
-		resp, err := (&http.Client{}).Do(req) // TODO: don't create a new client each time
+		resp, err := m.client.Do(req) // TODO: don't create a new client each time
 		if err != nil {
-			m.logger.Warn("Error connecting to worker", "worker", worker, "err", err)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			m.logger.Warn("Error connecting to worker", "worker", worker, "error", err)
 			continue
 		}
 
@@ -156,9 +170,9 @@ func (m *Manager) synchronizeTasks(ctx context.Context) {
 		}
 
 		for _, t := range tasks {
-			m.logger.Debug("Attempting to update task...", "taskId", t.ID)
+			m.logger.Debug("Attempting to update task...", "taskId", t.Id)
 
-			result, err := m.TaskDb.Get(t.ID.String())
+			result, err := m.TaskDb.Get(t.Id.String())
 			if err != nil {
 				m.logger.Warn("Error while getting task", "error", err)
 				return
@@ -179,7 +193,7 @@ func (m *Manager) synchronizeTasks(ctx context.Context) {
 			persistedTask.ContainerID = t.ContainerID
 			persistedTask.HostPorts = t.HostPorts
 
-			m.TaskDb.Put(persistedTask.ID.String(), persistedTask)
+			m.TaskDb.Put(persistedTask.Id.String(), persistedTask)
 		}
 	}
 }
@@ -201,36 +215,44 @@ func (m *Manager) UpdateNodeStats() {
 
 func (m *Manager) ProcessTasks() {
 	for {
+		tracer := otel.Tracer("")
+		ctx, span := tracer.Start(context.Background(), "ProcessTasks")
 		func() {
-			ctx := context.Background()
-			tracer := otel.Tracer("Task processing")
-			ctx, span := tracer.Start(ctx, "ProcessTasks")
+			ctx, span := tracer.Start(ctx, "Processing...")
 			defer span.End()
 
-			m.logger.Debug("Processing pending tasks...")
-			m.SendWork(ctx)
+			logger := m.logger.WithCtx(ctx)
+			logger.Debug("Processing pending tasks...")
+			m.sendTask(ctx)
 		}()
 
-		delay := 10 * time.Second
-		m.logger.Debug("Sleeping...", "delay", delay)
-		time.Sleep(delay)
+		func() {
+			ctx, span := tracer.Start(ctx, "Sleeping...")
+			defer span.End()
+
+			logger := m.logger.WithCtx(ctx)
+			delay := 10 * time.Second
+			logger.Debug("Sleeping...", "delay", delay)
+			time.Sleep(delay)
+		}()
+		span.End()
 	}
 }
 
 func (m *Manager) DoHealthChecks() {
 	for {
+		ctx := context.Background()
 		func() {
-			ctx := context.Background()
-			ctx, span := otel.Tracer("Health checking").Start(ctx, "DoHealthChecks")
+			ctx, span := otel.Tracer("").Start(ctx, "DoHealthChecks")
 			defer span.End()
 
-			m.logger.Debug("Performing task health check...")
+			m.logger.DebugContext(ctx, "Performing task health check...")
 			m.doHealthChecks(ctx)
-			m.logger.Debug("Task health checks completed")
+			m.logger.DebugContext(ctx, "Task health checks completed")
 		}()
 
 		delay := 60 * time.Second
-		m.logger.Debug("Sleeping...", "delay", delay)
+		m.logger.DebugContext(ctx, "Sleeping...", "delay", delay)
 		time.Sleep(delay)
 	}
 }
@@ -240,49 +262,54 @@ func (m *Manager) doHealthChecks(ctx context.Context) {
 	if err != nil {
 		m.logger.Error(err.Error())
 	}
+
 	for _, t := range tasks.([]*task.Task) {
-		if t.State == task.Running && t.RestartCount < 3 {
+		maxRestartCount := byte(3)
+		if t.RestartCount >= maxRestartCount {
+			m.logger.WarnContext(ctx, "Task has been restarted max times, skipping health check",
+				"taskId", t.Id, "restartCount", t.RestartCount, "maxRestartCount", maxRestartCount)
+			continue
+		}
+		if t.State == task.Running {
 			err := m.checkTaskHealth(ctx, *t)
 			if err != nil {
-				if t.RestartCount < 3 {
-					m.restartTask(ctx, t)
-				}
+				m.restartTask(ctx, t)
 			}
-		} else if t.State == task.Failed && t.RestartCount < 3 {
+		} else if t.State == task.Failed {
 			m.restartTask(ctx, t)
 		}
 	}
 }
 
 func (m *Manager) checkTaskHealth(ctx context.Context, t task.Task) error {
-	ctx, span := otel.Tracer("").Start(ctx, "checkTaskHealth")
+	ctx, span := otel.Tracer("").Start(ctx, "CheckTaskHealth")
 	defer span.End()
+	logger := m.logger.WithCtx(ctx)
 
-	m.logger.Debug("Calling health check for task", "taskId", t.ID, "healthCheckPath", t.HealthCheck)
+	logger.Debug("Calling health check for task", "taskId", t.Id, "healthCheckUrl", t.HealthCheck)
 
-	w := m.TaskWorkerMap[t.ID]
+	w := m.TaskWorkerMap[t.Id]
 	hostPort := getHostPort(t.HostPorts)
 	worker := strings.Split(w, ":")
 	if hostPort == nil {
-		m.logger.Info("Have not collected task host port yet. Skipping.", "taskId", t.ID)
+		logger.Info("Have not collected task host port yet. Skipping.", "taskId", t.Id)
 		return nil
 	}
 	url := fmt.Sprintf("http://%s:%s%s", worker[0], *hostPort, t.HealthCheck)
-	m.logger.Debug("Calling health check for task", "taskId", t.ID, "healthCheckPath", url)
-	resp, err := (&http.Client{}).Do(communication.NewGet(ctx, url))
+	logger.Debug("Calling health check for task", "taskId", t.Id, "healthCheckUrl", url)
+	resp, err := m.client.Do(communication.NewGet(ctx, url))
 	if err != nil {
-		msg := "Error connecting to the health check endpoint of task"
-		m.logger.Warn(msg, "healthCheckPath", url)
-		return errors.New(msg)
+		return fmt.Errorf("error connecting to the health check endpoint of task: %w",
+			err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		msg := fmt.Sprintln("Error of health check result, did not return 'ok' status")
-		m.logger.Warn(msg, "taskId", t.ID)
-		return errors.New(msg)
+		logger.Warn(msg, "taskId", t.Id, "responseStatusCode", resp.StatusCode)
+		return fmt.Errorf("%s: %w", msg, err)
 	}
 
-	m.logger.Debug("Task health check response", "taskId", t.ID, "StatusCode", resp.StatusCode)
+	logger.Debug("Task health check response", "taskId", t.Id, "StatusCode", resp.StatusCode)
 	return nil
 }
 
@@ -294,179 +321,326 @@ func getHostPort(ports nat.PortMap) *string {
 }
 
 func (m *Manager) restartTask(ctx context.Context, t *task.Task) {
-	ctx, span := otel.Tracer("").Start(ctx, "restartTask")
+	ctx, span := otel.Tracer("").Start(ctx, "RestartTask")
 	defer span.End()
 
-	// Get the worker where the task was running
-	w := m.TaskWorkerMap[t.ID]
-	t.State = task.Scheduled
+	// if task is already pending of restart
+	if t.State == task.Pending {
+		return
+	}
+
+	// logger := m.logger.WithCtx(ctx)
+
+	// worker := m.TaskWorkerMap[t.Id]
+	t.State = task.Pending
 	t.RestartCount++
 
 	// We need to overwrite the existing task to ensure it has
 	// the current state
-	m.TaskDb.Put(t.ID.String(), t)
+	m.TaskDb.Put(t.Id.String(), t)
 
-	te := task.TaskEvent{
-		ID:        uuid.New(),
-		State:     task.Running,
-		Timestamp: time.Now(),
-		Task:      *t,
-	}
-	data, err := json.Marshal(te)
-	if err != nil {
-		m.logger.Error("Unable to marshal task object", "task", t)
+	// te := task.TaskEvent{
+	// 	Id:        uuid.New(),
+	// 	State:     task.Running,
+	// 	Timestamp: time.Now(),
+	// 	Payload:   *t,
+	// }
+	// data, err := json.Marshal(te)
+	// if err != nil {
+	// 	logger.Error("Unable to marshal task object", "task", t, "error", err)
+	// 	return
+	// }
+
+	// url := fmt.Sprintf("http://%s/tasks", worker)
+	// req := communication.NewPost(ctx, url, communication.NewJSON(data))
+	// resp, err := m.client.Do(req)
+	// defer resp.Body.Close()
+	// if err != nil {
+	// 	logger.Error("Error connecting to worker", "worker", worker, "error", err)
+	// 	m.Pending.Enqueue(t)
+	// 	return
+	// }
+
+	// d := json.NewDecoder(resp.Body)
+	// if resp.StatusCode != http.StatusCreated {
+	// 	e := webapi.ErrResponse{}
+	// 	err := d.Decode(&e)
+	// 	if err != nil {
+	// 		logger.Error("Error decoding response", "error", err.Error())
+	// 		return
+	// 	}
+	// 	logger.Error("Response error (%d): %s\n", e.HTTPStatusCode, e.Message)
+	// 	return
+	// }
+
+	// newTask := task.Task{}
+	// err = d.Decode(&newTask)
+	// if err != nil {
+	// 	logger.Error("Error decoding response", "error", err.Error())
+	// 	return
+	// }
+	// logger.Debug("%#v\n", t)
+}
+
+func (m *Manager) sendTask(ctx context.Context) {
+	ctx, span := otel.Tracer("").Start(ctx, "SendWork")
+	defer span.End()
+
+	logger := m.logger.WithCtx(ctx)
+
+	if m.Pending.Len() == 0 {
+		logger.Info("No work in the queue")
 		return
 	}
 
-	url := fmt.Sprintf("http://%s/tasks", w)
-	req := communication.NewPost(ctx, url, communication.NewJSON(data))
-	resp, err := (&http.Client{}).Do(req)
+	nextTaskEvent, nextTask, currentTask, err := m.getNextTaskForSending(ctx)
+	taskId := currentTask.Id
 	if err != nil {
-		m.logger.Error("Error connecting to worker", "worker", w, "error", err)
-		m.Pending.Enqueue(t)
+		logger.Error("Error getting next task for sending", "error", err)
 		return
 	}
+	err = m.ValidateTaskTransition(ctx, nextTaskEvent, nextTask)
+	if err != nil {
+		logger.Error("Invalid task transition", "error", err)
+		return
+	}
+
+	// e := m.Pending.Dequeue()
+	// te := e.(task.TaskEvent)
+	// err := m.EventDb.Put(te.Id.String(), &te)
+	// if err != nil {
+	// 	logger.Error("Error while storing the task event", "task.event.id", te.Id.String(), "error", err)
+	// 	return
+	// }
+
+	// var taskId uuid.UUID
+	// var newTask *task.Task
+	// if te.State == task.Stopped {
+	// 	taskId = te.Payload.(uuid.UUID)
+	// } else {
+	// 	newTask = te.Payload.(*task.Task)
+	// 	taskId = newTask.Id
+	// 	logger.Debug("Pulled task off pending queue", "task.id", taskId)
+	// }
+
+	// rawTask, err := m.TaskDb.Get(taskId.String())
+	// if err != nil {
+	// 	logger.Error("Error while finding the task in the taskDb", "task.id", taskId.String(), "error", err)
+	// 	return
+	// }
+
+	// existingTask, ok := rawTask.(*task.Task)
+	// if !ok {
+	// 	logger.Error("Error of task converting to type", "task.id", taskId.String())
+	// 	return
+	// }
+
+	// newState := te.State
+	// if !task.IsValidStateTransition(storedTask.State, newState) {
+	// 	logger.Error("Error: existing task cannot be transited to the new state",
+	// 		"task.id", storedTask.Id.String(),
+	// 		"task.state", storedTask.State.String(),
+	// 		"task.state.new", newState.String())
+	// 	return
+	// }
+
+	worker, err := m.getWorker(currentTask, nextTask)
+	if err != nil {
+		logger.Error("Error getting worker for task", "task.id", nextTask.Id, "error", err)
+		return
+	}
+
+	// TODO: add function "MakeTransition"
+	if nextTask.State == task.Stopped {
+		m.stopTask(ctx, worker, taskId.String())
+	} else {
+		nextTask.State = task.Scheduled
+	}
+
+	err = m.TaskDb.Put(taskId.String(), nextTask)
+	if err != nil {
+		logger.Error("Error while saving new task or updating existing task", "task.id",
+			taskId.String(), "error", err)
+		return
+	}
+
+	switch nextTaskEvent.State {
+	case task.Scheduled:
+		data, err := json.Marshal(nextTaskEvent)
+		if err != nil {
+			logger.Error("Unable to marshal task event", "error", err)
+			return
+		}
+
+		url := fmt.Sprintf("http://%s/tasks", worker)
+		req := communication.NewPost(ctx, url, communication.NewJSON(data))
+	case task.Stopped:
+		url := fmt.Sprintf("http://%s/tasks/%s", worker, taskId.String())
+		req := communication.NewPut(ctx, url)
+	}
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		logger.Warn("Error connecting to worker endpoint", "worker.endpoint", url, "error", err)
+		m.Pending.Enqueue(nextTaskEvent)
+		return
+	}
+	defer resp.Body.Close()
 
 	d := json.NewDecoder(resp.Body)
 	if resp.StatusCode != http.StatusCreated {
 		e := webapi.ErrResponse{}
 		err := d.Decode(&e)
 		if err != nil {
-			m.logger.Error("Error decoding response", "error", err.Error())
+			logger.Error("Error decoding response", "error", err.Error())
 			return
 		}
-		m.logger.Error("Response error (%d): %s\n", e.HTTPStatusCode, e.Message)
+		logger.Warn("Response error", "status.code", e.HTTPStatusCode, "error", e.Message)
 		return
 	}
+}
 
-	newTask := task.Task{}
-	err = d.Decode(&newTask)
+func (m *Manager) getNextTaskForSending(ctx context.Context) (*task.TaskEvent, *task.Task,
+	*task.Task, error) {
+	e := m.Pending.Dequeue()
+	nextTaskEvent := e.(task.TaskEvent)
+	err := m.EventDb.Put(nextTaskEvent.Id.String(), &nextTaskEvent) // TODO: Change this, remove it
 	if err != nil {
-		m.logger.Error("Error decoding response: %s\n", err.Error())
-		return
+		return nil, nil, nil, fmt.Errorf("error while storing the task event (task.event.id = %s): %w",
+			nextTaskEvent.Id, err)
 	}
-	m.logger.Debug("%#v\n", t)
+
+	var nextTask *task.Task
+	var currentTask *task.Task
+	switch nextTaskEvent.Payload.(type) {
+	case *task.Task:
+		nextTask = nextTaskEvent.Payload.(*task.Task)
+	case uuid.UUID:
+		taskId := nextTaskEvent.Payload.(uuid.UUID)
+		rawTask, err := m.TaskDb.Get(taskId.String())
+		if err != nil {
+			err = fmt.Errorf("error while finding the task (task.id = %s): %w", taskId, err)
+			break
+		}
+
+		var ok bool
+		currentTask, ok = rawTask.(*task.Task)
+		if !ok {
+			err = fmt.Errorf("error of task converting (task.id = %s)", taskId)
+		}
+	default:
+		err = fmt.Errorf("error of event payload converting (task.event.id = %s)",
+			nextTaskEvent.Id)
+	}
+
+	return &nextTaskEvent, nextTask, currentTask, err
 }
 
-func (m *Manager) SendWork(ctx context.Context) {
-	ctx, span := otel.Tracer("").Start(ctx, "SendWork")
-	defer span.End()
+func (m *Manager) ValidateTaskTransition(ctx context.Context, nextEvent *task.TaskEvent,
+	nextTask *task.Task) error {
 
-	if m.Pending.Len() > 0 {
-		e := m.Pending.Dequeue()
-		te := e.(task.TaskEvent)
-		err := m.EventDb.Put(te.ID.String(), &te)
-		if err != nil {
-			m.logger.Error("Error attempting to store task event \"Id = %s\": %s\n", te.ID.String(), err)
-			return
-		}
-
-		t := te.Task
-		m.logger.Debug("Pulled task off pending queue (task = %v)\n", t)
-
-		taskWorker, ok := m.TaskWorkerMap[t.ID]
-		if ok {
-			rawTask, err := m.TaskDb.Get(t.ID.String())
-			if err != nil {
-				m.logger.Error("Unable to schedule task: %s", err)
-				return
-			}
-			persistedTask, ok := rawTask.(*task.Task)
-			if !ok {
-				m.logger.Error("Unable to convert task to task.Task type")
-				return
-			}
-
-			if te.State == task.Completed && task.ValidStateTransition(persistedTask.State, te.State) {
-				m.stopTask(ctx, taskWorker, te.Task.ID.String())
-				return
-			}
-
-			m.logger.Error("invalid request: existing task (task = %s) is in state (state = %s) and"+
-				" cannot transition to the completed state\n",
-				persistedTask.ID.String(), persistedTask.State.String())
-			return
-		}
-
-		m.SelectWorker(t)
-
-		w, err := m.SelectWorker(t)
-		if err != nil {
-			m.logger.Error(`error selecting worker for task "%s": "%v"\n`, t.ID, err)
-		}
-
-		m.WorkerTaskMap[w.Name] = append(m.WorkerTaskMap[w.Name], te.Task.ID)
-		m.TaskWorkerMap[t.ID] = w.Name
-
-		t.State = task.Scheduled
-		err = m.TaskDb.Put(t.ID.String(), &t)
-		if err != nil {
-			m.logger.Error("Error: %s", err)
-		}
-
-		data, err := json.Marshal(te)
-		if err != nil {
-			m.logger.Error("Unable to marshal task object: %v.\n", t)
-		}
-
-		url := fmt.Sprintf("http://%s/tasks", w.Name)
-		req := communication.NewPost(ctx, url, communication.NewJSON(data))
-		resp, err := (&http.Client{}).Do(req)
-		if err != nil {
-			m.logger.Warn("Error connecting to worker endpoint", "worker.endpoint", url, "error", err)
-			m.Pending.Enqueue(te)
-			return
-		}
-
-		d := json.NewDecoder(resp.Body)
-		if resp.StatusCode != http.StatusCreated {
-			e := webapi.ErrResponse{}
-			err := d.Decode(&e)
-			if err != nil {
-				m.logger.Error("Error decoding response", "error", err.Error())
-				return
-			}
-			m.logger.Warn("Response error status code", "status.code", e.HTTPStatusCode, "error", e.Message)
-			return
-		}
-
-		t = task.Task{}
-		err = d.Decode(&t)
-		if err != nil {
-			m.logger.Error("Error decoding response", "error", err.Error())
-			return
-		}
-		m.logger.Debug("%#v\n", t)
-	} else {
-		m.logger.Info("No work in the queue")
+	newState := nextEvent.State
+	if !task.IsValidStateTransition(nextTask.State, newState) {
+		return fmt.Errorf("invalid state transition for task (task.id = %s, from = %s, to = %s)",
+			nextTask.Id.String(), nextTask.State.String(), newState.String())
 	}
+
+	return nil
 }
 
-func (m *Manager) AddTask(te task.TaskEvent) {
-	m.Pending.Enqueue(te)
+func (m *Manager) getWorker(currentTask *task.Task, nextTask *task.Task) (string, error) {
+	if currentTask != nil {
+		worker, ok := m.TaskWorkerMap[currentTask.Id]
+		if !ok {
+			return "",
+				fmt.Errorf("no worker found for task event (task.event.id = %s), but should be",
+					currentTask.Id)
+		}
+		return worker, nil
+	}
+	taskId := nextTask.Id
+	workerAddr, ok := m.TaskWorkerMap[taskId]
+	if ok {
+		return workerAddr, nil
+	}
+	worker, err := m.SelectWorker(*nextTask)
+	if err != nil {
+		return "", err
+	}
+	m.WorkerTaskMap[worker.Name] = append(m.WorkerTaskMap[worker.Name], taskId)
+	m.TaskWorkerMap[taskId] = worker.Name
+	return worker.Name, nil
+}
+
+func (m *Manager) AddTask(ctx context.Context, newTaskEvent *task.TaskEvent) (uuid.UUID,
+	error) {
+	if event, _ := m.EventDb.Get(newTaskEvent.Id.String()); event != nil {
+		return uuid.Nil, ErrTaskEventAlreadyExists
+	}
+	newTask := newTaskEvent.Payload.(*task.Task)
+
+	newTask.Id = uuid.New()
+	newTask.State = task.Pending
+
+	// TODO: Remove this. You can't do this since there is a risk that the data will be inconsistent.
+	// TODO: Use goroutine to copy the task from event db to pending queue.
+	m.Pending.Enqueue(
+		task.TaskEvent{
+			Id:        newTaskEvent.Id,
+			State:     task.Pending,
+			Timestamp: time.Now().UTC(),
+			Payload:   newTask,
+		})
+
+	err := m.EventDb.Put(newTaskEvent.Id.String(), newTaskEvent)
+	if err != nil {
+		err := fmt.Errorf("error while storing task event %s: %w", newTaskEvent.Id, err)
+		return uuid.Nil, err
+	}
+
+	return newTask.Id, nil
+}
+
+func (m *Manager) StopTask(ctx context.Context, id uuid.UUID) error {
+	logger := m.logger.WithCtx(ctx)
+
+	_, err := m.TaskDb.Get(id.String())
+	if err != nil {
+		logger.WarnContext(ctx, "No task found by Id", "taskId", id)
+		return fmt.Errorf("%w: %w", ErrTaskNotFound, err)
+	}
+
+	m.Pending.Enqueue(
+		task.TaskEvent{
+			State:     task.Stopped,
+			Timestamp: time.Now(),
+			Payload:   id,
+		})
+	return nil
 }
 
 func (m *Manager) GetTasks() []*task.Task {
 	tasks, err := m.TaskDb.List()
 	if err != nil {
-		m.logger.Error("Error of getting list of tasks: %v\n", err)
+		m.logger.Error("Error of getting list of tasks", "error", err)
 		return nil
 	}
 	return tasks.([]*task.Task)
 }
 
-func (m *Manager) stopTask(ctx context.Context, worker string, taskID string) {
-	url := fmt.Sprintf("http://%s/tasks/%s", worker, taskID)
+// TODO: Add returned error
+func (m *Manager) stopTask(ctx context.Context, worker string, taskId string) {
+	url := fmt.Sprintf("http://%s/tasks/%s", worker, taskId)
 	req := communication.NewDelete(ctx, url)
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := m.client.Do(req)
 	if err != nil {
-		m.logger.Error(`error connecting to the worker endpoint`, "worker.endpoint", url, "error", err)
+		m.logger.ErrorContext(ctx, "Error connecting to the worker endpoint",
+			"worker.endpoint", url, "error", err)
 		return
 	}
 	if resp.StatusCode != 204 {
-		m.logger.Error(`Error sending request: "%v"\n`, err)
+		m.logger.ErrorContext(ctx, "Error sending request", "error", err)
 		return
 	}
-	m.logger.Info("Task has been scheduled to be stopped", "taskId", taskID)
+	m.logger.Info("Task has been scheduled to be stopped", "taskId", taskId)
 }

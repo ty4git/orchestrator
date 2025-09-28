@@ -60,7 +60,7 @@ services:
       - "2345:2345"
       - "40000:40000"
     environment:
-      ORCHESTRATOR_PORT: ${ORCHESTRATOR_MANAGER_PORT}
+      ORCHESTRATOR_MANAGER_PORT: ${ORCHESTRATOR_MANAGER_PORT}
     labels:
       - co.elastic.logs/enabled=true
   # worker:

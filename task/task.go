@@ -9,7 +9,7 @@ import (
 )
 
 type Task struct {
-	ID            uuid.UUID
+	Id            uuid.UUID
 	ContainerID   string
 	Name          string
 	State         State // TODO: Make it private for task package, no one can change it
@@ -21,8 +21,8 @@ type Task struct {
 	HostPorts     nat.PortMap
 	PortBindings  map[string]string
 	RestartPolicy container.RestartPolicyMode
-	StartTime     time.Time
-	FinishTime    time.Time
+	StartTime     *time.Time
+	FinishTime    *time.Time
 	RestartCount  byte
 	HealthCheck   string
 }

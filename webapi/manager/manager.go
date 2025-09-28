@@ -1,12 +1,12 @@
 package manager
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"orchestrator/manager"
 	"orchestrator/task"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -58,7 +58,7 @@ func (api *Api) createRoutes(engine *gin.Engine) {
 	{
 		tasks.GET("", api.GetTasks)
 		tasks.POST("", api.StartTask)
-		tasks.DELETE("/:taskID", api.StopTask)
+		tasks.DELETE("/:taskId", api.StopTask)
 	}
 	nodes := engine.Group("nodes")
 	{
@@ -71,10 +71,11 @@ func (api *Api) GetTasks(c *gin.Context) {
 }
 
 func (api *Api) StartTask(c *gin.Context) {
-	te := task.TaskEvent{}
-	if err := c.BindJSON(&te); err != nil {
+	ctx := c.Request.Context()
+	apiAddTask := &StartTask{}
+	if err := c.BindJSON(apiAddTask); err != nil {
 		msg := fmt.Sprintf("Error unmarshalling body: %v", err)
-		api.logger.Warn(msg)
+		api.logger.WarnContext(ctx, msg)
 		e := ErrResponse{
 			HTTPStatusCode: 400,
 			Message:        msg,
@@ -83,42 +84,54 @@ func (api *Api) StartTask(c *gin.Context) {
 		return
 	}
 
-	api.Manager.AddTask(te)
-	api.logger.Debug("Added task", "taskId", te.Task.ID)
-	c.JSON(http.StatusCreated, te.Task)
+	addTask := apiAddTask.ToManagerTask()
+
+	addTaskEvent := &task.TaskEvent{
+		Id:      apiAddTask.EventId,
+		Payload: addTask,
+	}
+
+	taskId, err := api.Manager.AddTask(ctx, addTaskEvent)
+	if err != nil {
+		if errors.Is(err, manager.ErrTaskEventAlreadyExists) {
+			api.logger.WarnContext(ctx, "Task event already exists",
+				"task.event.id", apiAddTask.EventId, "error", err)
+			c.Status(http.StatusConflict)
+			return
+		}
+		api.logger.ErrorContext(ctx,
+			fmt.Sprintf("Error adding task: %v", err), "task.event.id", apiAddTask.EventId,
+			"task.id", taskId)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	api.logger.DebugContext(ctx, "Added task", "task.event.id", apiAddTask.EventId,
+		"task.id", taskId)
+	c.JSON(http.StatusCreated, addTaskEvent)
 }
 
 func (api *Api) StopTask(c *gin.Context) {
-	rawID := c.Param("taskID")
+	ctx := c.Request.Context()
+	rawID := c.Param("taskId")
 	if rawID == "" {
-		msg := "No taskID passed in request."
-		api.logger.Info(msg)
+		msg := "No taskId passed in request."
+		api.logger.InfoContext(ctx, msg)
 		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 	}
 
 	id, _ := uuid.Parse(rawID)
-	rawTask, err := api.Manager.TaskDb.Get(id.String())
+	err := api.Manager.StopTask(ctx, id)
 	if err != nil {
-		api.logger.Warn("No task found by Id", "taskId", id)
-		c.JSON(http.StatusNotFound, gin.H{"error": "Not found!$"})
-	}
-	taskToStop, ok := rawTask.(*task.Task)
-	if !ok {
-		api.logger.Error("Error while stopping task", "task", taskToStop)
-	}
-
-	te := task.TaskEvent{
-		ID:        uuid.New(),
-		State:     task.Stopped,
-		Timestamp: time.Now(),
+		api.logger.ErrorContext(ctx, err.Error(), "taskId", id)
+		if errors.Is(err, manager.ErrTaskNotFound) {
+			c.Status(http.StatusNotFound)
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
 	}
 
-	taskCopy := *taskToStop
-	taskCopy.State = task.Stopped
-	te.Task = taskCopy
-	api.Manager.AddTask(te)
-
-	api.logger.Debug("Added task event to stop task", "taskEventId", te.ID, "taskId", taskToStop.ID)
+	api.logger.DebugContext(ctx, "Added the stop task", "taskId", id)
 	c.Status(http.StatusOK)
 }
 

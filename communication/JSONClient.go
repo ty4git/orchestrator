@@ -103,8 +103,10 @@ func NewPost(ctx context.Context, url string, body *Body) *http.Request {
 		}
 	}
 
-	traced := addTraceInfo(ctx, req)
-	return traced
+	return req
+
+	// traced := addTraceInfo(ctx, req)
+	//return traced
 }
 
 func NewGet(ctx context.Context, url string) *http.Request {

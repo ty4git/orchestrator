@@ -7,8 +7,8 @@ import (
 )
 
 type TaskEvent struct {
-	ID        uuid.UUID
+	Id        uuid.UUID
 	State     State
 	Timestamp time.Time
-	Task      Task
+	Payload   any
 }

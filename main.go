@@ -26,7 +26,7 @@ const (
 )
 
 func main() {
-	_ = infrastructure.NewLogger(Environment)
+	_ = infrastructure.NewSlogLogger(Environment)
 
 	slog.Info("Starting orchestrator...")
 	cmd.Execute()

@@ -52,7 +52,8 @@ The manager controls the orchestration system and is responsible for:
 		slog.Info("Starting manager...")
 
 		ctx := context.Background()
-		managerTracer := infrastructure.InitJaeger(ctx, ServiceName, ServiceVersion, DeploymentEnvironment)
+		managerTracer := infrastructure.InitOpenTel(ctx, ServiceName, ServiceVersion,
+			DeploymentEnvironment)
 		defer managerTracer.Shutdown(ctx)
 
 		m := manager.

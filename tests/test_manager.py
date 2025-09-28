@@ -6,6 +6,7 @@ BASE_URL = "http://localhost:8080"
 
 def test_get_tasks():
     """Get tasks"""
+    print("Get tasks!!")
     response = requests.get(url=f"{BASE_URL}/tasks")
     assert response.status_code == 200
     data = response.json()

@@ -47,16 +47,16 @@ The status command allows a user to get the status of tasks from the Cube manage
 		fmt.Fprintln(w, "ID\tNAME\tCREATED\tSTATE\tCONTAINERNAME\tIMAGE\t")
 		for _, task := range tasks {
 			var start string
-			if task.StartTime.IsZero() {
+			if task.StartTime == nil || task.StartTime.IsZero() {
 				start = fmt.Sprintf("%s ago", units.HumanDuration(time.Now().UTC().Sub(time.Now().UTC())))
 			} else {
-				start = fmt.Sprintf("%s ago", units.HumanDuration(time.Now().UTC().Sub(task.StartTime)))
+				start = fmt.Sprintf("%s ago", units.HumanDuration(time.Now().UTC().Sub(*task.StartTime)))
 			}
 
 			// TODO: there is a bug here, state for stopped jobs is showing as Running
 			// state := task.State.String()[task.State]
 			state := task.State.String()
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t\n", task.ID, task.Name, start, state, task.Name, task.Image)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t\n", task.Id, task.Name, start, state, task.Name, task.Image)
 		}
 		w.Flush()
 	},

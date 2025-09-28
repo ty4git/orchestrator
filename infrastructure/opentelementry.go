@@ -15,7 +15,7 @@ const (
 	Development = "development"
 )
 
-func InitJaeger(ctx context.Context, serviceName string, serviceVersion string,
+func InitOpenTel(ctx context.Context, serviceName string, serviceVersion string,
 	deploymentEnvironment string) *sdktrace.TracerProvider {
 	options := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint("jaeger:4318"),
@@ -40,11 +40,11 @@ func InitJaeger(ctx context.Context, serviceName string, serviceVersion string,
 	)
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-
 		// TODO: it's only for tests then change it
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
 	)
 
 	otel.SetTextMapPropagator(
@@ -55,6 +55,40 @@ func InitJaeger(ctx context.Context, serviceName string, serviceVersion string,
 	)
 
 	otel.SetTracerProvider(tp)
-
 	return tp
+
+	//lp := InitOTelLog(ctx, serviceName, deploymentEnvironment, res)
+
+	// return tp, lp
 }
+
+// func InitOTelLog(ctx context.Context, serviceName string, deploymentEnvironment string,
+// 	res *resource.Resource) *log.LoggerProvider {
+// 	tempLogger := slog.Default()
+// 	tempLogger.Info("Configuring logger...")
+
+// 	logOptions := []otlploghttp.Option{
+// 		otlploghttp.WithEndpoint("jaeger:4318"),
+// 	}
+// 	if deploymentEnvironment == Development {
+// 		logOptions = append(logOptions, otlploghttp.WithInsecure())
+// 	}
+// 	logExporter, err := otlploghttp.New(ctx, logOptions...)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	loggerProvider := log.NewLoggerProvider(
+// 		log.WithResource(res),
+// 		log.WithProcessor(log.NewBatchProcessor(logExporter)),
+// 	)
+// 	logger := otelslog.NewLogger(fmt.Sprintf("%s-%s", serviceName, "logger"),
+// 		otelslog.WithLoggerProvider(loggerProvider),
+// 		otelslog.WithSource(true))
+
+// 	slog.SetDefault(logger)
+
+// 	logger.InfoContext(ctx, "Hello world!")
+
+// 	tempLogger.Info("Logger configured.")
+// 	return loggerProvider
+// }

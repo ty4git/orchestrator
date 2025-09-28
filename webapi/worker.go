@@ -79,12 +79,13 @@ func (api *Api) StartTask(c *gin.Context) {
 		return
 	}
 
-	newTask := &(taskEvent.Task)
-	newTask.State = task.Scheduled
+	newTask := taskEvent.Payload.(*task.Task)
+	newTask.State = task.Scheduled // TODL: don't do this in api level
 
 	api.Worker.AddTask(newTask)
-	api.logger.Printf("Added task \"%v\"\n", taskEvent.Task.ID)
-	c.JSON(http.StatusCreated, taskEvent.Task)
+	api.logger.Printf("Added task (event: \"%v\", task: \"%v\")\n",
+		taskEvent.Id, newTask.Id)
+	c.JSON(http.StatusCreated, newTask)
 }
 
 func (a *Api) GetTasks(c *gin.Context) {
@@ -116,7 +117,7 @@ func (api *Api) StopTask(c *gin.Context) {
 	api.Worker.AddTask(&taskCopy)
 
 	api.logger.Printf("Added task (id = '%v') to stop container (id = '%v')\n",
-		deletingTask.ID, deletingTask.ContainerID)
+		deletingTask.Id, deletingTask.ContainerID)
 	c.Status(http.StatusOK)
 }
 
@@ -143,7 +144,7 @@ func (api *Api) DeleteTask(c *gin.Context) {
 	taskCopy.State = task.Deleted
 	api.Worker.AddTask(&taskCopy)
 
-	api.logger.Printf("Added task for deleting itself \"%v\"", deletingTask.ID)
+	api.logger.Printf("Added task for deleting itself \"%v\"", deletingTask.Id)
 	c.Status(http.StatusOK)
 }
 
